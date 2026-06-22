@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Yama P3 Practice</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <canvas id="world" aria-label="Yama phase 3 practice arena"></canvas>
+
+    <aside id="panel" aria-label="Practice controls">
+      <header>
+        <p class="eyebrow">OSRS practice draft</p>
+        <h1>Yama P3</h1>
+      </header>
+
+      <section class="readouts" aria-label="Simulation readouts">
+        <div>
+          <span>Tick</span>
+          <strong id="tick">0</strong>
+        </div>
+        <div>
+          <span>Time</span>
+          <strong id="time">0.0s</strong>
+        </div>
+        <div>
+          <span>Tile</span>
+          <strong id="position">F3</strong>
+        </div>
+        <div>
+          <span>Mistakes</span>
+          <strong id="mistakes">0</strong>
+        </div>
+      </section>
+
+      <label class="field">
+        Method
+        <select id="method"></select>
+      </label>
+
+      <label class="field">
+        Source markers
+        <select id="markers"></select>
+      </label>
+
+      <div class="button-row">
+        <button id="startPause" type="button">Start</button>
+        <button id="step" type="button">Step</button>
+        <button id="reset" type="button">Reset</button>
+      </div>
+
+      <label class="field">
+        Speed <output id="speedLabel">1.00x</output>
+        <input id="speed" type="range" min="0.25" max="4" step="0.25" value="1">
+      </label>
+
+      <div class="toggle-grid">
+        <label><input id="runToggle" type="checkbox" checked> Run movement</label>
+        <label><input id="showGrid" type="checkbox" checked> Grid</label>
+        <label><input id="showMethod" type="checkbox" checked> Method waypoints</label>
+        <label><input id="showMarkers" type="checkbox" checked> Source markers</label>
+        <label><input id="strictWaypoints" type="checkbox"> Score waypoints</label>
+      </div>
+
+      <section aria-label="Prayer switches">
+        <p class="section-title">Prayer</p>
+        <div class="prayer-row">
+          <button type="button" data-prayer="magic">Mage</button>
+          <button type="button" data-prayer="range">Range</button>
+          <button type="button" data-prayer="melee">Melee</button>
+          <button type="button" data-prayer="none">Off</button>
+        </div>
+      </section>
+
+      <section aria-label="Current status">
+        <p class="section-title">Status</p>
+        <p id="status" class="status-line">Ready. Click a tile to queue movement.</p>
+      </section>
+
+      <section aria-label="Event log">
+        <p class="section-title">Event log</p>
+        <ol id="eventLog" class="event-log"></ol>
+      </section>
+
+      <p class="fine-print">
+        RoboFly data is sourced from the YouTube description, Pastebin marker exports,
+        and the shared notebook. Damage rules are still a training approximation.
+      </p>
+    </aside>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
