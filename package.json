@@ -6,5 +6,8 @@
   "scripts": {
     "start": "node server.mjs",
     "test": "node tests/engine.test.mjs"
+  },
+  "dependencies": {
+    "three": "^0.184.0"
   }
 }

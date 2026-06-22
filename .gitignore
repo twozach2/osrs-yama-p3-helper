@@ -1,0 +1,10 @@
+node_modules/
+*.log
+public/assets/osrs/*.glb
+public/assets/osrs/*.gltf
+public/assets/osrs/*.bin
+public/assets/osrs/*.png
+public/assets/osrs/*.jpg
+public/assets/osrs/*.jpeg
+public/assets/osrs/*.webp
+public/assets/osrs/manifest.json

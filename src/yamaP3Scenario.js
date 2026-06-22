@@ -15,10 +15,15 @@ export const YAMA_P3_SCENARIO = {
   firstActionTick: 0,
   arena: createArena(),
   playerStart: coordToTile(ROBOFLY_PATHS.roboflySource.coords[0]),
-  yama: {
-    name: "Yama unsafe zone",
+  unsafeZone: {
+    name: "Yama attack danger",
     origin: coordToTile("E11"),
     size: { width: 7, height: 7 }
+  },
+  yama: {
+    name: "Yama",
+    origin: coordToTile("G9"),
+    size: { width: 3, height: 3 }
   },
   schedule: ROBOFLY_SCHEDULE,
   methods: createMethods(),
@@ -58,10 +63,10 @@ function createEvents() {
   return [
     message(
       0,
-      "RoboFly source schedule loaded. Tick 0 is the first coordinate in the notebook path."
+      "RoboFly source schedule loaded. Click floor tiles to move; click Yama to attack."
     ),
     ...ROBOFLY_SCHEDULE.yamaAttackTicks.map((tick) =>
-      hazard(tick, 1, rectangle(coordToTile("E11"), 7, 7), `Yama attack ${tick}`)
+      hazard(tick, 1, rectangle(coordToTile("E11"), 7, 7), `Yama melee check ${tick}`)
     ),
     ...ROBOFLY_SCHEDULE.playerAttackLandingTicks.map((tick) =>
       message(tick, `Player attack lands on tick ${tick}.`)

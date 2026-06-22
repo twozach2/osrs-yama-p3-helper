@@ -1,0 +1,15 @@
+{
+  "scale": 0.01,
+  "models": {
+    "player": {
+      "path": "/assets/osrs/player.glb",
+      "scale": 0.01,
+      "yOffset": 0
+    },
+    "yama": {
+      "path": "/assets/osrs/yama.glb",
+      "scale": 0.01,
+      "yOffset": 0
+    }
+  }
+}

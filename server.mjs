@@ -11,6 +11,13 @@ const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".glb": "model/gltf-binary",
+  ".gltf": "model/gltf+json",
+  ".bin": "application/octet-stream",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
   ".mjs": "text/javascript; charset=utf-8",
   ".svg": "image/svg+xml"
 };
@@ -19,7 +26,8 @@ const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url ?? "/", `http://${HOST}:${PORT}`);
     const pathname = url.pathname === "/" ? "/index.html" : decodeURIComponent(url.pathname);
-    const filePath = normalize(join(ROOT, pathname));
+    const localPathname = pathname.startsWith("/assets/") ? `/public${pathname}` : pathname;
+    const filePath = normalize(join(ROOT, localPathname));
 
     if (!filePath.startsWith(ROOT)) {
       response.writeHead(403);
@@ -29,7 +37,8 @@ const server = createServer(async (request, response) => {
 
     const body = await readFile(filePath);
     response.writeHead(200, {
-      "Content-Type": MIME_TYPES[extname(filePath)] ?? "application/octet-stream"
+      "Content-Type": MIME_TYPES[extname(filePath)] ?? "application/octet-stream",
+      "Cache-Control": "no-store"
     });
     response.end(body);
   } catch {

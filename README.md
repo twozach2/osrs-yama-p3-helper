@@ -9,6 +9,7 @@ The current data pass is based on jeremiah855's video, "ROBOFLY - Computer Optim
 From this folder:
 
 ```powershell
+npm.cmd install
 node server.mjs
 ```
 
@@ -25,11 +26,31 @@ If you prefer npm from PowerShell on Windows, use `npm.cmd test` if your executi
 ## What Is In Place
 
 - A deterministic 600 ms tick engine in `src/engine.js`.
-- OSRS-style run movement at two path steps per tick after the drop-in lockout.
-- Canvas arena rendering with click-to-move, tile grid, queued path, hazards, projectiles, and waypoints.
+- OSRS-style run movement at two path steps per tick.
+- Click floor tiles to move; click Yama to path into range and attack.
+- Three.js/WebGL viewport with a tilted camera, raised floor tiles, 3D Yama, and a 3D player avatar.
+- Smooth character movement between true tiles, true-tile highlighting, click markers, attack swings, and hit splats.
+- 3D arena rendering with source tile markers, a route ghost, queued path, Yama danger zone, and meteor telegraphs.
 - RoboFly source paths, marker presets, chapter notes, fail-condition notes, and schedule constants in `src/roboflyData.js`.
 - Data-driven P3 events for Yama attacks, player attack landing ticks, and dynamic meteor fall/damage/dodge checks.
 - Pause, step, reset, speed control, prayer hotkeys, and optional strict waypoint scoring.
+
+## Practice Model
+
+Your character is separate from the route data. The route ghost shows where the sourced RoboFly path expects you to be on the current and next ticks, but your character only moves when you click. This is deliberate: the useful practice is training the floor/boss clicks and feeling when your true tile is late or early.
+
+## Real OSRS Models
+
+The app supports local user-provided `.glb` / `.gltf` models through `public/assets/osrs/manifest.json`. See `docs/osrs-asset-pipeline.md` for the conversion and drop-in workflow. Jagex-owned cache assets are intentionally ignored by Git and should not be redistributed from this repo.
+
+Current controls:
+
+- Click a floor tile to move.
+- Click Yama to attack. If you are out of range, the engine paths to a nearby attack tile first.
+- `Space` starts or pauses.
+- `N` advances one tick.
+- `R` resets.
+- `1`, `2`, `3`, `4` switch prayers.
 
 ## Extracted RoboFly Data
 

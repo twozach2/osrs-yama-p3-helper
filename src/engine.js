@@ -17,19 +17,27 @@ export class SimulatorEngine {
       running: false,
       methodId,
       player: cloneTile(startTile),
+      previousPlayer: cloneTile(startTile),
+      moveSegments: [{ from: cloneTile(startTile), to: cloneTile(startTile) }],
       target: null,
       queuedPath: [],
+      intent: null,
+      attackCooldown: 0,
+      attackCount: 0,
       runEnabled: true,
       strictWaypoints: false,
       prayer: "none",
       hazards: [],
       projectiles: [],
+      clickMarkers: [],
+      hitSplats: [],
+      attackSwings: [],
       yama: clone(this.scenario.yama),
       mistakes: [],
       eventLog: []
     };
 
-    this.log("Ready. P3 script loaded with draft timing data.");
+    this.log("Ready. Click the floor to move or click Yama to attack.");
   }
 
   start() {
@@ -57,10 +65,20 @@ export class SimulatorEngine {
     this.log(`Prayer set to ${prayer}.`);
   }
 
+  clickTile(tile) {
+    if (this.isYamaTile(tile)) {
+      return this.queueAttack();
+    }
+
+    return this.queueMove(tile);
+  }
+
   queueMove(tile) {
     const path = findPath(this.state.player, tile, this.scenario.arena);
     this.state.target = path.length > 0 ? cloneTile(tile) : null;
     this.state.queuedPath = path;
+    this.state.intent = "move";
+    this.addClickMarker(tile, "move");
 
     if (path.length === 0 && !sameTile(this.state.player, tile)) {
       this.log(`No path to ${tile.x},${tile.y}.`);
@@ -71,14 +89,40 @@ export class SimulatorEngine {
     return true;
   }
 
+  queueAttack() {
+    this.state.intent = "attack";
+    this.addClickMarker(this.getYamaCenterTile(), "attack");
+
+    if (this.canAttackFrom(this.state.player)) {
+      this.log("Queued Yama attack.");
+      return true;
+    }
+
+    const attackTile = this.findNearestAttackTile();
+    if (!attackTile) {
+      this.log("No attack tile found.");
+      return false;
+    }
+
+    const path = findPath(this.state.player, attackTile, this.scenario.arena);
+    this.state.target = cloneTile(attackTile);
+    this.state.queuedPath = path;
+    this.log(`Pathing to attack tile ${formatTile(attackTile)}.`);
+    return path.length > 0;
+  }
+
   advanceTick() {
     const tick = this.state.tick;
+    this.state.previousPlayer = cloneTile(this.state.player);
+    this.state.moveSegments = [];
 
     this.processEvents(tick);
     this.movePlayer(tick);
+    this.resolveIntent(tick);
     this.resolveDamage(tick);
     this.scoreWaypoint(tick);
     this.cleanup(tick);
+    this.state.attackCooldown = Math.max(0, this.state.attackCooldown - 1);
 
     this.state.tick += 1;
   }
@@ -88,8 +132,22 @@ export class SimulatorEngine {
   }
 
   getNextWaypoint() {
+    return this.getExpectedWaypoint(this.state.tick + 1);
+  }
+
+  getExpectedWaypoint(tick = this.state.tick) {
     const method = this.getMethod();
-    return method.waypoints.find((waypoint) => waypoint.tick >= this.state.tick) ?? null;
+    if (method.waypoints.length === 0) {
+      return null;
+    }
+
+    const cycleTick = tick % method.waypoints.length;
+    const waypoint = method.waypoints[cycleTick];
+    return {
+      ...waypoint,
+      cycleTick,
+      absoluteTick: tick
+    };
   }
 
   getSnapshot() {
@@ -97,6 +155,7 @@ export class SimulatorEngine {
       ...this.state,
       scenario: this.scenario,
       method: this.getMethod(),
+      expectedWaypoint: this.getExpectedWaypoint(),
       nextWaypoint: this.getNextWaypoint()
     };
   }
@@ -152,22 +211,46 @@ export class SimulatorEngine {
 
   movePlayer(tick) {
     if (tick < this.scenario.firstActionTick || this.state.queuedPath.length === 0) {
+      this.state.moveSegments = [{ from: cloneTile(this.state.player), to: cloneTile(this.state.player) }];
       return;
     }
 
     const steps = this.state.runEnabled ? 2 : 1;
+    let from = cloneTile(this.state.player);
 
     for (let step = 0; step < steps; step += 1) {
       const next = this.state.queuedPath.shift();
       if (!next) {
         break;
       }
+      this.state.moveSegments.push({ from, to: cloneTile(next) });
       this.state.player = next;
+      from = cloneTile(next);
     }
 
     if (this.state.queuedPath.length === 0) {
       this.state.target = null;
     }
+
+    if (this.state.moveSegments.length === 0) {
+      this.state.moveSegments = [{ from: cloneTile(this.state.player), to: cloneTile(this.state.player) }];
+    }
+  }
+
+  resolveIntent(tick) {
+    if (this.state.intent !== "attack") {
+      return;
+    }
+
+    if (!this.canAttackFrom(this.state.player)) {
+      return;
+    }
+
+    if (this.state.attackCooldown > 0) {
+      return;
+    }
+
+    this.performAttack(tick);
   }
 
   resolveDamage(tick) {
@@ -208,7 +291,7 @@ export class SimulatorEngine {
       return;
     }
 
-    const waypoint = this.getMethod().waypoints.find((item) => item.tick === tick);
+    const waypoint = this.getExpectedWaypoint(tick);
     if (!waypoint) {
       return;
     }
@@ -231,6 +314,9 @@ export class SimulatorEngine {
 
       return finalTick >= tick || !projectile.resolvedImpact;
     });
+    this.state.clickMarkers = this.state.clickMarkers.filter((marker) => tick - marker.tick < 4);
+    this.state.hitSplats = this.state.hitSplats.filter((hit) => tick - hit.tick < 5);
+    this.state.attackSwings = this.state.attackSwings.filter((swing) => tick - swing.tick < 3);
   }
 
   addMistake(tick, text) {
@@ -247,6 +333,75 @@ export class SimulatorEngine {
     this.state.eventLog.unshift({ tick: this.state.tick, text });
     this.state.eventLog = this.state.eventLog.slice(0, MAX_LOG_ITEMS);
   }
+
+  isYamaTile(tile) {
+    return isInsideRect(tile, this.scenario.yama.origin, this.scenario.yama.size);
+  }
+
+  canAttackFrom(tile) {
+    if (this.isYamaTile(tile)) {
+      return false;
+    }
+
+    const distance = distanceToRect(tile, this.scenario.yama.origin, this.scenario.yama.size);
+    return distance <= 2;
+  }
+
+  findNearestAttackTile() {
+    const candidates = [];
+    const { arena } = this.scenario;
+
+    for (let y = 0; y < arena.height; y += 1) {
+      for (let x = 0; x < arena.width; x += 1) {
+        const tile = { x, y };
+        if (!this.canAttackFrom(tile)) {
+          continue;
+        }
+
+        const path = findPath(this.state.player, tile, arena);
+        if (path.length > 0 || sameTile(this.state.player, tile)) {
+          candidates.push({ tile, distance: path.length });
+        }
+      }
+    }
+
+    candidates.sort((a, b) => a.distance - b.distance);
+    return candidates[0]?.tile ?? null;
+  }
+
+  performAttack(tick) {
+    const center = this.getYamaCenterTile();
+    const amount = 18 + ((tick * 17 + this.state.attackCount * 11) % 34);
+    this.state.attackCooldown = 3;
+    this.state.attackCount += 1;
+    this.state.hitSplats.push({
+      tick,
+      amount,
+      tile: center,
+      kind: "melee"
+    });
+    this.state.attackSwings.push({
+      tick,
+      from: cloneTile(this.state.player),
+      to: center
+    });
+    this.log(`Attacked Yama for ${amount}.`);
+  }
+
+  getYamaCenterTile() {
+    return {
+      x: this.scenario.yama.origin.x + Math.floor(this.scenario.yama.size.width / 2),
+      y: this.scenario.yama.origin.y + Math.floor(this.scenario.yama.size.height / 2)
+    };
+  }
+
+  addClickMarker(tile, kind) {
+    this.state.clickMarkers.push({
+      tick: this.state.tick,
+      tile: cloneTile(tile),
+      kind
+    });
+  }
 }
 
 function clone(value) {
@@ -259,4 +414,23 @@ function cloneTile(tile) {
 
 function formatTile(tile) {
   return `${tile.x},${tile.y}`;
+}
+
+function isInsideRect(tile, origin, size) {
+  return (
+    tile.x >= origin.x &&
+    tile.y >= origin.y &&
+    tile.x < origin.x + size.width &&
+    tile.y < origin.y + size.height
+  );
+}
+
+function distanceToRect(tile, origin, size) {
+  const minX = origin.x;
+  const maxX = origin.x + size.width - 1;
+  const minY = origin.y;
+  const maxY = origin.y + size.height - 1;
+  const dx = tile.x < minX ? minX - tile.x : tile.x > maxX ? tile.x - maxX : 0;
+  const dy = tile.y < minY ? minY - tile.y : tile.y > maxY ? tile.y - maxY : 0;
+  return Math.max(dx, dy);
 }
