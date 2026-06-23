@@ -1,5 +1,6 @@
+import { getAllMethods, listMethodPacks } from "./methods/index.js";
 import { makeTileSet } from "./pathfinding.js";
-import { coordToTile, ROBOFLY_PATHS, ROBOFLY_SCHEDULE, ROBOFLY_VIDEO } from "./roboflyData.js";
+import { coordToTile, ROBOFLY_SCHEDULE, ROBOFLY_VIDEO } from "./roboflyData.js";
 
 export const TICK_MS = 600;
 
@@ -7,14 +8,14 @@ const WIDTH = 15;
 const HEIGHT = 15;
 
 export const YAMA_P3_SCENARIO = {
-  id: "yama-p3-robofly",
-  name: "Yama Phase 3 RoboFly",
+  id: "yama-p3",
+  name: "Yama Phase 3",
   tickMs: TICK_MS,
   calibrationStatus: "source-data-draft",
   source: ROBOFLY_VIDEO,
   firstActionTick: 0,
   arena: createArena(),
-  playerStart: coordToTile(ROBOFLY_PATHS.roboflySource.coords[0]),
+  playerStart: computePlayerStart(),
   unsafeZone: {
     name: "Yama attack danger",
     origin: coordToTile("E11"),
@@ -50,22 +51,17 @@ function createArena() {
 }
 
 function createMethods() {
-  return Object.fromEntries(
-    Object.entries(ROBOFLY_PATHS).map(([id, path]) => [
-      id,
-      {
-        name: path.name,
-        source: path.source,
-        description: path.description,
-        waypoints: path.coords.map((coord, tick) => ({
-          tick,
-          coord,
-          tile: coordToTile(coord),
-          label: coord
-        }))
-      }
-    ])
-  );
+  // Pulled from the method-pack registry — adding a new pack under
+  // src/methods/ and registering it in src/methods/index.js makes its
+  // variants appear here automatically.
+  return getAllMethods();
+}
+
+function computePlayerStart() {
+  const firstPack = listMethodPacks()[0];
+  const firstVariant = Object.values(firstPack?.variants ?? {})[0];
+  const firstCoord = firstVariant?.coords?.[0];
+  return firstCoord ? coordToTile(firstCoord) : { x: 0, y: 0 };
 }
 
 function createEvents() {

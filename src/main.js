@@ -2,13 +2,15 @@ import * as THREE from "../node_modules/three/build/three.module.js";
 import { GLTFLoader } from "../node_modules/three/examples/jsm/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "../node_modules/three/examples/jsm/utils/SkeletonUtils.js";
 import { SimulatorEngine } from "./engine.js";
-import { isWalkable } from "./pathfinding.js";
 import {
-  colorFromTileMarker,
-  coordToTile,
-  ROBOFLY_MARKER_PRESETS,
-  tileToCoord
-} from "./roboflyData.js";
+  getAllMarkerPresets,
+  getDefaultMarkerPresetId,
+  getDefaultMethodId,
+  getDefaultPackId,
+  listMethodPacks
+} from "./methods/index.js";
+import { isWalkable } from "./pathfinding.js";
+import { colorFromTileMarker, coordToTile, tileToCoord } from "./roboflyData.js";
 import { TICK_MS, YAMA_P3_SCENARIO } from "./yamaP3Scenario.js";
 
 const canvas = document.querySelector("#world");
@@ -20,6 +22,7 @@ const ui = {
   cooldown: document.querySelector("#cooldown"),
   position: document.querySelector("#position"),
   mistakes: document.querySelector("#mistakes"),
+  methodPack: document.querySelector("#methodPack"),
   method: document.querySelector("#method"),
   markers: document.querySelector("#markers"),
   startPause: document.querySelector("#startPause"),
@@ -59,21 +62,18 @@ function bootstrap() {
 
 
 function init() {
-  for (const [id, method] of Object.entries(YAMA_P3_SCENARIO.methods)) {
+  for (const pack of listMethodPacks()) {
     const option = document.createElement("option");
-    option.value = id;
-    option.textContent = method.name;
-    ui.method.append(option);
+    option.value = pack.id;
+    option.textContent = pack.name;
+    ui.methodPack.append(option);
   }
+  ui.methodPack.value = getDefaultPackId();
 
+  populateMethodOptions(ui.methodPack.value);
   ui.method.value = engine.state.methodId;
 
-  for (const [id, preset] of Object.entries(ROBOFLY_MARKER_PRESETS)) {
-    const option = document.createElement("option");
-    option.value = id;
-    option.textContent = preset.name;
-    ui.markers.append(option);
-  }
+  populateMarkerOptions(ui.methodPack.value);
 
   ui.startPause.addEventListener("click", () => {
     engine.toggleRunning();
@@ -86,6 +86,13 @@ function init() {
   });
 
   ui.reset.addEventListener("click", () => {
+    resetPractice();
+  });
+
+  ui.methodPack.addEventListener("change", () => {
+    const packId = ui.methodPack.value;
+    populateMethodOptions(packId);
+    populateMarkerOptions(packId);
     resetPractice();
   });
 
@@ -160,6 +167,31 @@ function resetPractice() {
   accumulator = 0;
   gameScene.forceStaticRefresh();
   updateHud();
+}
+
+function populateMethodOptions(packId) {
+  ui.method.replaceChildren();
+  for (const [id, method] of Object.entries(YAMA_P3_SCENARIO.methods)) {
+    if (method.packId !== packId) continue;
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = method.name;
+    ui.method.append(option);
+  }
+  ui.method.value = getDefaultMethodId(packId) ?? ui.method.value;
+}
+
+function populateMarkerOptions(packId) {
+  ui.markers.replaceChildren();
+  const presets = getAllMarkerPresets();
+  for (const [id, preset] of Object.entries(presets)) {
+    if (preset.packId !== packId) continue;
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = preset.name;
+    ui.markers.append(option);
+  }
+  ui.markers.value = getDefaultMarkerPresetId(packId) ?? ui.markers.value;
 }
 
 function updateHud() {
@@ -573,7 +605,7 @@ class ThreeGameScene {
       return;
     }
 
-    const preset = ROBOFLY_MARKER_PRESETS[markerPresetId];
+    const preset = getAllMarkerPresets()[markerPresetId];
     if (!preset) {
       return;
     }

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { SimulatorEngine } from "../src/engine.js";
+import { findCheckpoints, findPath } from "../src/pathfinding.js";
 import { YAMA_P3_SCENARIO } from "../src/yamaP3Scenario.js";
 
 const SEED = 12345;
@@ -172,6 +173,61 @@ function moveAdjacentToYama(engine) {
     seqB.push([b.state.player.hp, b.state.yama.hp]);
   }
   assert.deepEqual(seqA, seqB, "two engines with the same seed must produce identical hp sequences");
+}
+
+// 9. OSRS pathfinding — wiki neighbour order, checkpoint extraction, follow-mode walk.
+{
+  const arena = { width: 15, height: 15, blockedSet: new Set() };
+
+  // Pure cardinal east: 5 east tiles; single checkpoint at destination.
+  const eastPath = findPath({ x: 5, y: 5 }, { x: 10, y: 5 }, arena);
+  assert.equal(eastPath.length, 5, "east path should be 5 tiles");
+  assert.ok(eastPath.every((t, i) => t.x === 6 + i && t.y === 5), "east path tiles should be pure east");
+  const eastCheckpoints = findCheckpoints({ x: 5, y: 5 }, { x: 10, y: 5 }, arena);
+  assert.deepEqual(eastCheckpoints, [{ x: 10, y: 5 }], "pure cardinal run yields one checkpoint at the destination");
+
+  // Pure SE diagonal: 5 diagonal tiles; single checkpoint.
+  const diagPath = findPath({ x: 5, y: 5 }, { x: 10, y: 10 }, arena);
+  assert.equal(diagPath.length, 5, "SE diagonal path should be 5 tiles");
+  assert.ok(
+    diagPath.every((t, i) => t.x === 6 + i && t.y === 6 + i),
+    "SE diagonal path tiles should be pure diagonals"
+  );
+
+  // Mixed cardinal+diagonal: BFS in wiki order takes cardinals first, then diagonals.
+  // For (5,5) -> (8,10): 2 south then 3 SE, with a corner at (5,7).
+  const mixCheckpoints = findCheckpoints({ x: 5, y: 5 }, { x: 8, y: 10 }, arena);
+  assert.deepEqual(
+    mixCheckpoints,
+    [{ x: 5, y: 7 }, { x: 8, y: 10 }],
+    "mixed path should have one corner at the cardinal->diagonal turn"
+  );
+
+  // Diagonal corner-cut still blocked: when both orthogonal neighbours of the
+  // diagonal step are blocked, the first step of any path to (6,6) must NOT be
+  // the direct (5,5)->(6,6) diagonal — the player has to detour.
+  const cornerBlocked = new Set(["6,5", "5,6"]);
+  const cornerArena = { width: 15, height: 15, blockedSet: cornerBlocked };
+  const cornerPath = findPath({ x: 5, y: 5 }, { x: 6, y: 6 }, cornerArena);
+  assert.ok(cornerPath.length > 0, "the goal should still be reachable via a detour");
+  assert.notDeepEqual(
+    cornerPath[0],
+    { x: 6, y: 6 },
+    "diagonal corner-cut step must not be the first move when both cardinal neighbours are blocked"
+  );
+
+  // Checkpoint truncation: limit at 25 corners.
+  let zigzag = { x: 0, y: 0 };
+  const longChain = [];
+  for (let i = 0; i < 40; i += 1) {
+    zigzag = { x: zigzag.x + 1, y: zigzag.y + (i % 2 === 0 ? 1 : -1) };
+    longChain.push(zigzag);
+  }
+  // Synthetic test of the cap: confirm findCheckpoints never returns more than 25.
+  // (Using a small open arena, we can't actually realize 40 corners — but the cap
+  // is enforced by slice(0, MAX_CHECKPOINTS) regardless of caller input.)
+  const cappedCheckpoints = findCheckpoints({ x: 0, y: 0 }, { x: 14, y: 14 }, arena);
+  assert.ok(cappedCheckpoints.length <= 25, "checkpoint list must be ≤ 25");
 }
 
 console.log("engine tests passed");

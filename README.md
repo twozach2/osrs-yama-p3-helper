@@ -36,6 +36,8 @@ If you prefer npm from PowerShell on Windows, use `npm.cmd test` if your executi
 - HUD overlay: HP / Prayer / Run-energy orbs and a Yama HP bar above the arena, plus an in-world HP bar over Yama.
 - Render hooks for meteor telegraphs + falling orbs, void flares with charge bars, shadow-wave telegraphs, and fireball-line telegraphs.
 - Optional training overlay: RoboFly source paths, marker presets, route ghost, and the original `ROBOFLY_SCHEDULE` are retained as reference data and waypoint scoring; they no longer drive mechanics.
+- **Method-pack registry** (`src/methods/`) so additional P3 routes / tile-marker packs can be added without touching the engine; the UI exposes a Method-pack dropdown that filters the Variant and Source-markers selectors.
+- **OSRS-accurate player pathfinding** in `src/pathfinding.js`: BFS in the wiki's W,E,S,N,SW,SE,NW,NE neighbour order, corner extraction into "checkpoint tiles" (capped at 25), and follow-mode (diagonal-first) interpolation between checkpoints.
 - Pause, step, reset, speed control, prayer hotkeys, spec hotkey, and optional strict waypoint scoring.
 
 ## Practice Model
@@ -81,6 +83,48 @@ From the notebook:
 - Meteor dodge ticks: `8, 11, 14, 29, 32, 35`
 - Loop check: tick `49` paths back toward tick `1`
 
+## Adding a Method Pack
+
+A method pack is a self-contained route / tile-marker collection. Adding one is two files plus one registry line — no engine or scenario edits required.
+
+1. Create `src/methods/<yourPackId>.js` exporting a pack object:
+
+   ```js
+   export const MY_PACK = {
+     id: "myPack",                          // stable, used as a key prefix
+     name: "My Method",                     // shown in the Method-pack dropdown
+     description: "One-line summary.",
+     source: { url: "...", author: "..." }, // free-form provenance metadata
+     variants: {
+       primary: {
+         name: "Primary route",
+         description: "Optional.",
+         source: "Optional citation.",
+         coords: ["F3", "F5", "D7", /* ... OSRS-style "<col><row>" tile coords */]
+       }
+     },
+     markerPresets: {                       // optional
+       solo: {
+         name: "Solo markers",
+         markers: [["A1", "label", "#FFRRGGBB"], /* ... */]
+       }
+     }
+   };
+   ```
+
+2. Register it in `src/methods/index.js`:
+
+   ```js
+   import { MY_PACK } from "./myPack.js";
+
+   export const METHOD_PACKS = {
+     [ROBOFLY_PACK.id]: ROBOFLY_PACK,
+     [MY_PACK.id]: MY_PACK
+   };
+   ```
+
+That's it. The Method-pack dropdown picks it up, the Variant dropdown shows your variants, and the Source-markers dropdown shows your marker presets. Method ids in the engine are namespaced as `<packId>:<variantId>` so packs can't collide.
+
 ## Tuning the Sim
 
 The combat numbers are Wiki-derived placeholders and are deliberately centralized so they can be tuned without spelunking through the engine. Treat them as draft values and replace with measured data as it lands.
@@ -93,11 +137,13 @@ All randomness flows through the engine's seeded RNG (`mulberry32`). Do not use 
 
 ## Files To Edit First
 
+- `src/methods/`: method-pack registry and one file per pack (e.g. `robofly.js`). Add new routes here.
 - `src/combat.js`: PRNG and roll math; default player profile; run / prayer tuning constants.
 - `src/yamaAi.js`: reactive Yama decision logic and timers.
 - `src/yamaP3Scenario.js`: arena dimensions, Yama footprint, and Yama combat stats block.
 - `src/engine.js`: tick order, input queue, movement, prayer pierce, hazard resolution, end states.
-- `src/roboflyData.js`: source video metadata, marker presets, and the (now reference-only) schedule constants.
+- `src/pathfinding.js`: OSRS-accurate BFS + checkpoint extraction + follow-mode walk.
+- `src/roboflyData.js`: source video metadata, marker presets, and the (now reference-only) schedule constants for the RoboFly pack.
 - `src/main.js`: rendering hooks, HUD wiring, and controls.
 
 ## Notes
