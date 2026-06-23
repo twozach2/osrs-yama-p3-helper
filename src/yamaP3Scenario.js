@@ -23,7 +23,16 @@ export const YAMA_P3_SCENARIO = {
   yama: {
     name: "Yama",
     origin: coordToTile("G9"),
-    size: { width: 3, height: 3 }
+    size: { width: 3, height: 3 },
+    maxHp: 833,
+    attackSpeed: 7,
+    maxHits: { auto: 46, meteor: 162, shadowStomp: 80, flare: 25, poison: 20 },
+    defenceLevel: 225,
+    defenceBonus: { stab: 135, slash: 108, crush: 449, magic: 81, ranged: 297 },
+    prayerPierce: { magic: 3, ranged: 3, melee: 22 },
+    flare: { hp: 71, chargeTicks: 8, spawnEvery: 14, specDamage: 80 },
+    meteor: { telegraphTicks: 3, safeDist: 2, edgeDamage: 80, oneTileDamage: 40 },
+    shadow: { everyTicks: 21, telegraphTicks: 2 }
   },
   schedule: ROBOFLY_SCHEDULE,
   methods: createMethods(),
@@ -60,47 +69,17 @@ function createMethods() {
 }
 
 function createEvents() {
+  // RoboFly schedule no longer drives mechanics — the reactive Yama AI is the source
+  // of truth. The only baseline event is the boot message; the schedule remains
+  // available via scenario.schedule for the optional training overlay.
   return [
     message(
       0,
-      "RoboFly source schedule loaded. Click floor tiles to move; click Yama to attack."
-    ),
-    ...ROBOFLY_SCHEDULE.yamaAttackTicks.map((tick) =>
-      hazard(tick, 1, rectangle(coordToTile("E11"), 7, 7), `Yama melee check ${tick}`)
-    ),
-    ...ROBOFLY_SCHEDULE.playerAttackLandingTicks.map((tick) =>
-      message(tick, `Player attack lands on tick ${tick}.`)
-    ),
-    ...ROBOFLY_SCHEDULE.meteorFallTicks.map((tick, index) =>
-      meteorFall(tick, tick + 3, tick + 4, `Meteor ${index + 1}`)
-    ),
-    message(
-      ROBOFLY_SCHEDULE.loopClickTick,
-      `Loop click check: tick ${ROBOFLY_SCHEDULE.loopClickTick} should path toward tick ${ROBOFLY_SCHEDULE.loopTargetTick}.`
+      "Reactive Yama P3 sim loaded. Click floor tiles to move; click Yama to attack."
     )
   ];
 }
 
 function message(tick, text) {
   return { type: "message", tick, text };
-}
-
-function hazard(tick, duration, tiles, label) {
-  return { type: "hazard", tick, duration, tiles, label };
-}
-
-function meteorFall(tick, damageTick, dodgeTick, label) {
-  return { type: "meteorFall", tick, damageTick, dodgeTick, label };
-}
-
-function rectangle(origin, width, height) {
-  const tiles = [];
-
-  for (let y = origin.y; y < origin.y + height; y += 1) {
-    for (let x = origin.x; x < origin.x + width; x += 1) {
-      tiles.push({ x, y });
-    }
-  }
-
-  return tiles;
 }

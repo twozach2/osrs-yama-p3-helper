@@ -9,6 +9,13 @@
   <body>
     <canvas id="world" aria-label="Yama phase 3 practice arena"></canvas>
 
+    <div id="hud" aria-hidden="true">
+      <div class="orb orb-hp" title="Hitpoints"><span id="hudHp">99</span></div>
+      <div class="orb orb-pray" title="Prayer"><span id="hudPray">99</span></div>
+      <div class="orb orb-run" title="Run energy"><span id="hudRun">100</span></div>
+      <div id="hudYamaBar"><i id="hudYamaFill"></i><span id="hudYamaText">833/833</span></div>
+    </div>
+
     <aside id="panel" aria-label="Practice controls">
       <header>
         <p class="eyebrow">OSRS practice draft</p>
@@ -66,10 +73,13 @@
       <section aria-label="Prayer switches">
         <p class="section-title">Prayer</p>
         <div class="prayer-row">
-          <button type="button" data-prayer="magic">Mage</button>
-          <button type="button" data-prayer="range">Range</button>
-          <button type="button" data-prayer="melee">Melee</button>
+          <button type="button" data-prayer="magic">Protect Magic</button>
+          <button type="button" data-prayer="ranged">Protect Missiles</button>
+          <button type="button" data-prayer="melee">Protect Melee</button>
           <button type="button" data-prayer="none">Off</button>
+        </div>
+        <div class="button-row">
+          <button id="spec" type="button">Spec (pop flare)</button>
         </div>
       </section>
 

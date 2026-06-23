@@ -34,7 +34,13 @@ const ui = {
   strictWaypoints: document.querySelector("#strictWaypoints"),
   status: document.querySelector("#status"),
   eventLog: document.querySelector("#eventLog"),
-  prayerButtons: [...document.querySelectorAll("[data-prayer]")]
+  prayerButtons: [...document.querySelectorAll("[data-prayer]")],
+  spec: document.querySelector("#spec"),
+  hudHp: document.querySelector("#hudHp"),
+  hudPray: document.querySelector("#hudPray"),
+  hudRun: document.querySelector("#hudRun"),
+  hudYamaFill: document.querySelector("#hudYamaFill"),
+  hudYamaText: document.querySelector("#hudYamaText")
 };
 
 let lastFrame = performance.now();
@@ -102,6 +108,13 @@ function init() {
     });
   }
 
+  if (ui.spec) {
+    ui.spec.addEventListener("click", () => {
+      engine.clickSpec();
+      updateHud();
+    });
+  }
+
   canvas.addEventListener("pointerdown", (event) => {
     const tile = gameScene.pickTile(event.clientX, event.clientY);
     if (!tile || (!isWalkable(tile, YAMA_P3_SCENARIO.arena) && !engine.isYamaTile(tile))) {
@@ -154,7 +167,7 @@ function updateHud() {
   const latest = snapshot.eventLog[0];
 
   ui.tick.textContent = String(snapshot.tick);
-  ui.cooldown.textContent = String(snapshot.attackCooldown);
+  ui.cooldown.textContent = String(snapshot.player.attackCooldown);
   ui.position.textContent = tileToCoord(snapshot.player);
   ui.mistakes.textContent = String(snapshot.mistakes.length);
   ui.startPause.textContent = snapshot.running ? "Pause" : "Start";
@@ -162,8 +175,17 @@ function updateHud() {
   ui.status.textContent = statusText(snapshot, latest);
 
   for (const button of ui.prayerButtons) {
-    button.classList.toggle("active", button.dataset.prayer === snapshot.prayer);
+    button.classList.toggle("active", button.dataset.prayer === snapshot.player.protect);
   }
+
+  if (ui.hudHp) ui.hudHp.textContent = String(Math.max(0, Math.round(snapshot.player.hp)));
+  if (ui.hudPray) ui.hudPray.textContent = String(Math.max(0, Math.round(snapshot.player.prayerPoints)));
+  if (ui.hudRun) ui.hudRun.textContent = String(Math.max(0, Math.round(snapshot.player.runEnergy)));
+  if (ui.hudYamaFill) {
+    const ratio = Math.max(0, snapshot.yama.hp / snapshot.yama.maxHp);
+    ui.hudYamaFill.style.width = `${ratio * 100}%`;
+  }
+  if (ui.hudYamaText) ui.hudYamaText.textContent = `${Math.max(0, Math.round(snapshot.yama.hp))}/${snapshot.yama.maxHp}`;
 
   ui.eventLog.replaceChildren(
     ...snapshot.eventLog.slice(0, 16).map((item) => {
@@ -207,13 +229,18 @@ function handleKeydown(event) {
 
   const prayerByKey = {
     "1": "magic",
-    "2": "range",
+    "2": "ranged",
     "3": "melee",
     "4": "none"
   };
 
   if (prayerByKey[event.key]) {
     engine.setPrayer(prayerByKey[event.key]);
+    updateHud();
+  }
+
+  if (event.key.toLowerCase() === "s") {
+    engine.clickSpec();
     updateHud();
   }
 }
@@ -307,13 +334,17 @@ class ThreeGameScene {
     this.updatePlayer(snapshot, partialTick);
     this.updateCameraTarget(snapshot, partialTick);
     this.drawUnsafeZone(snapshot);
+    this.drawShadowWaves(snapshot, partialTick);
     this.drawActiveHazards(snapshot, partialTick);
     this.drawProjectiles(snapshot, partialTick);
+    this.drawFireballLine(snapshot, partialTick);
+    this.drawVoidFlares(snapshot, partialTick);
     this.drawQueuedPath(snapshot);
     this.drawTrueTile(snapshot);
     this.drawClickMarkers(snapshot, partialTick);
     this.drawAttackSwings(snapshot, partialTick);
     this.drawHitSplats(snapshot, partialTick);
+    this.drawYamaHpBar(snapshot);
 
     this.renderer.render(this.scene, this.camera);
     this.canvas.dataset.sceneKind = "threejs";
@@ -636,6 +667,7 @@ class ThreeGameScene {
 
   drawActiveHazards(snapshot, partialTick) {
     for (const hazard of snapshot.hazards) {
+      if (hazard.type === "shadowWaves") continue;
       const progress = (snapshot.tick + partialTick - hazard.startTick) / Math.max(1, hazard.endTick - hazard.startTick);
       const opacity = Math.max(0.18, 0.5 - progress * 0.2);
       const material = new THREE.MeshBasicMaterial({
@@ -656,6 +688,7 @@ class ThreeGameScene {
 
   drawProjectiles(snapshot, partialTick) {
     for (const projectile of snapshot.projectiles) {
+      if (projectile.type !== "meteor") continue;
       const total = Math.max(1, projectile.impactTick - projectile.startTick);
       const progress = THREE.MathUtils.clamp((snapshot.tick + partialTick - projectile.startTick) / total, 0, 1);
 
@@ -668,12 +701,10 @@ class ThreeGameScene {
         telegraph.position.set(floor.x, floor.y, floor.z);
         this.dynamicGroup.add(telegraph);
 
-        if (projectile.type === "meteor") {
-          const orb = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 8), this.materials.meteor);
-          orb.position.set(floor.x, 3.6 - progress * 3.2, floor.z);
-          orb.castShadow = true;
-          this.dynamicGroup.add(orb);
-        }
+        const orb = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 8), this.materials.meteor);
+        orb.position.set(floor.x, 3.6 - progress * 3.2, floor.z);
+        orb.castShadow = true;
+        this.dynamicGroup.add(orb);
       }
     }
   }
@@ -744,17 +775,89 @@ class ThreeGameScene {
     for (const hit of snapshot.hitSplats) {
       const age = snapshot.tick + partialTick - hit.tick;
       const alpha = Math.max(0, 1 - age / 5);
-      const position = this.tileToWorld(hit.tile, 3.2 + age * 0.08);
+      const baseHeight = hit.target === "player" ? 1.6 : 3.2;
+      const position = this.tileToWorld(hit.tile, baseHeight + age * 0.08);
+      const style = splatStyle(hit);
       const sprite = makeTextSprite(String(hit.amount), {
-        fill: "#ffffff",
-        stroke: "#8b0000",
-        background: "#1a1a1a",
+        fill: style.fill,
+        stroke: style.stroke,
+        background: style.background,
         fontSize: 34,
         scale: 0.72,
         opacity: alpha
       });
       sprite.position.copy(position);
       this.effectGroup.add(sprite);
+    }
+  }
+
+  drawYamaHpBar(snapshot) {
+    if (snapshot.yama.phaseComplete) return;
+    const center = rectCenter(this.scenario.yama);
+    const base = this.tileToWorld(center, 4);
+    const width = 2.6;
+    const ratio = Math.max(0, snapshot.yama.hp / snapshot.yama.maxHp);
+
+    const bg = new THREE.Mesh(new THREE.PlaneGeometry(width, 0.22), this.materials.hpBarBg);
+    bg.position.set(base.x, base.y, base.z);
+    bg.lookAt(this.camera.position);
+    this.effectGroup.add(bg);
+
+    if (ratio > 0) {
+      const fill = new THREE.Mesh(new THREE.PlaneGeometry(width * ratio, 0.18), this.materials.hpBarFill);
+      fill.position.set(base.x - (width * (1 - ratio)) / 2, base.y + 0.01, base.z);
+      fill.lookAt(this.camera.position);
+      this.effectGroup.add(fill);
+    }
+  }
+
+  drawVoidFlares(snapshot, partialTick) {
+    for (const flare of snapshot.yama.flares ?? []) {
+      const position = this.tileToWorld(flare.tile, 0.9);
+      const ratio = Math.min(1, flare.charge / Math.max(1, flare.maxCharge));
+      const colour = new THREE.Color().lerpColors(
+        new THREE.Color(0xa3e635),
+        new THREE.Color(0xff3333),
+        ratio
+      );
+      const material = new THREE.MeshStandardMaterial({
+        color: colour,
+        emissive: colour,
+        emissiveIntensity: 0.6,
+        roughness: 0.4
+      });
+      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 8), material);
+      orb.position.set(position.x, position.y, position.z);
+      this.effectGroup.add(orb);
+
+      const bar = new THREE.Mesh(new THREE.PlaneGeometry(0.8 * ratio, 0.08), this.materials.flareCharge);
+      bar.position.set(position.x, position.y + 0.6, position.z);
+      bar.lookAt(this.camera.position);
+      this.effectGroup.add(bar);
+    }
+  }
+
+  drawShadowWaves(snapshot, partialTick) {
+    for (const hazard of snapshot.hazards) {
+      if (hazard.type !== "shadowWaves") continue;
+      for (const tile of hazard.tiles) {
+        const position = this.tileToWorld(tile, 0.16);
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.04, 0.92), this.materials.shadowTelegraph);
+        mesh.position.set(position.x, position.y, position.z);
+        this.dynamicGroup.add(mesh);
+      }
+    }
+  }
+
+  drawFireballLine(snapshot, partialTick) {
+    for (const projectile of snapshot.projectiles) {
+      if (projectile.type !== "fireballLine") continue;
+      for (const tile of projectile.tiles) {
+        const position = this.tileToWorld(tile, 0.18);
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.05, 0.9), this.materials.fireLine);
+        mesh.position.set(position.x, position.y, position.z);
+        this.dynamicGroup.add(mesh);
+      }
     }
   }
 
@@ -869,7 +972,12 @@ function createMaterials() {
     trueTile: new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.96 }),
     expectedTile: new THREE.MeshBasicMaterial({ color: 0xa3e635, transparent: true, opacity: 0.26, depthWrite: false }),
     attackClick: new THREE.LineBasicMaterial({ color: 0xff4040, transparent: true, opacity: 0.9 }),
-    moveClick: new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 })
+    moveClick: new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 }),
+    flareCharge: new THREE.MeshBasicMaterial({ color: 0xff7a38, transparent: true, opacity: 0.86, depthTest: false }),
+    shadowTelegraph: new THREE.MeshBasicMaterial({ color: 0x8a2be2, transparent: true, opacity: 0.42, depthWrite: false }),
+    fireLine: new THREE.MeshBasicMaterial({ color: 0xff5a14, transparent: true, opacity: 0.4, depthWrite: false }),
+    hpBarBg: new THREE.MeshBasicMaterial({ color: 0x1a1a1a, transparent: true, opacity: 0.82, depthTest: false }),
+    hpBarFill: new THREE.MeshBasicMaterial({ color: 0xd83d3d, transparent: true, opacity: 0.95, depthTest: false })
   };
 
   Object.values(materials).forEach((material) => {
@@ -978,6 +1086,17 @@ function rectCenter(rect) {
     x: rect.origin.x + rect.size.width / 2 - 0.5,
     y: rect.origin.y + rect.size.height / 2 - 0.5
   };
+}
+
+function splatStyle(hit) {
+  const kind = hit.kind;
+  if (hit.target === "player") {
+    if (kind === "poison") return { fill: "#ffffff", stroke: "#0e6b1c", background: "#062b0c" };
+    if (kind === "burn") return { fill: "#ffffff", stroke: "#d35400", background: "#3a1602" };
+    return { fill: "#ffffff", stroke: "#7a1010", background: "#3a0606" };
+  }
+  if (kind === "miss") return { fill: "#cfe4ff", stroke: "#1f3a66", background: "#0a1626" };
+  return { fill: "#ffffff", stroke: "#8b0000", background: "#1a1a1a" };
 }
 
 bootstrap();

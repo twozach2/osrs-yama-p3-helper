@@ -26,6 +26,9 @@ export const ROBOFLY_CHAPTERS = [
   ["DPS comparison", "18:22"]
 ];
 
+// Reference/validation data only — no longer drives mechanics. The reactive
+// Yama AI (see src/yamaAi.js) is now the source of truth; this schedule is
+// retained for the optional training overlay and for test cross-checks.
 export const ROBOFLY_SCHEDULE = {
   yamaAttackTicks: [2, 9, 16, 23, 30, 37, 44],
   playerAttackLandingTicks: [1, 6, 10, 13, 17, 22, 27, 31, 34, 38, 42, 46],
