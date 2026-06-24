@@ -142,6 +142,64 @@ assert.equal(setSizeCalls.at(-1).updateStyle, true, "fixed-mode resize asks rend
 wideCtrl.setFixedMode(false);
 assert.equal(wideRenderer.calls.at(-1).updateStyle, false, "leaving fixed-mode goes back to CSS-driven sizing");
 
+// V2.4 edge-pan
+const panCanvas = createStubEventCanvas(800, 600);
+const panCtrl = new CameraController({ canvas: panCanvas, renderer: createStubRenderer() });
+panCtrl.attach(panCanvas);
+
+panCtrl.lookAt({ x: 0, y: 0, z: 0 });
+assert.equal(panCtrl.targetOffset.x, 0, "fresh controller has no target offset");
+assert.equal(panCtrl.targetOffset.z, 0);
+
+const PAN_DT = 0.02;
+panCanvas.dispatch("pointermove", { pointerId: 1, button: -1, clientX: 790, clientY: 300 });
+panCtrl.tick(PAN_DT);
+assert.equal(panCtrl.targetOffset.x, 0, "tick does nothing when edge-pan is disabled");
+
+panCtrl.setEdgePan(true);
+panCtrl.tick(PAN_DT);
+const expectedDx = CAMERA_DEFAULTS.edgePanSpeed * PAN_DT;
+assert.ok(Math.abs(panCtrl.targetOffset.x - expectedDx) < 1e-9,
+  `right-edge cursor pans target +x by edgePanSpeed * dt (expected ~${expectedDx}, got ${panCtrl.targetOffset.x})`);
+
+panCtrl.resetTargetOffset();
+panCtrl.tick(10);
+const clampedDx = CAMERA_DEFAULTS.edgePanSpeed * 0.05;
+assert.ok(Math.abs(panCtrl.targetOffset.x - clampedDx) < 1e-9,
+  `tick clamps huge dt to 50ms (got ${panCtrl.targetOffset.x})`);
+
+panCtrl.resetTargetOffset();
+panCanvas.dispatch("pointermove", { pointerId: 1, button: -1, clientX: 400, clientY: 10 });
+panCtrl.tick(PAN_DT);
+assert.ok(panCtrl.targetOffset.z < -1e-9, "top-edge cursor pans target -z");
+assert.equal(panCtrl.targetOffset.x, 0, "top-edge cursor leaves x unchanged");
+
+panCtrl.resetTargetOffset();
+panCtrl.fixedMode = true;
+panCanvas.dispatch("pointermove", { pointerId: 1, button: -1, clientX: 790, clientY: 300 });
+panCtrl.tick(PAN_DT);
+assert.equal(panCtrl.targetOffset.x, 0, "fixed-mode disables edge-pan");
+panCtrl.fixedMode = false;
+
+panCtrl.resetTargetOffset();
+panCanvas.dispatch("pointerleave", {});
+panCtrl.tick(PAN_DT);
+assert.equal(panCtrl.targetOffset.x, 0, "no cursor (pointerleave) disables edge-pan");
+
+panCtrl.resetTargetOffset();
+panCanvas.dispatch("pointermove", { pointerId: 1, button: -1, clientX: 400, clientY: 300 });
+panCtrl.tick(PAN_DT);
+assert.equal(panCtrl.targetOffset.x, 0, "cursor in the center does not pan");
+assert.equal(panCtrl.targetOffset.z, 0);
+
+panCtrl.lookAt({ x: 0, y: 0, z: 0 });
+panCanvas.dispatch("pointermove", { pointerId: 1, button: -1, clientX: 790, clientY: 300 });
+panCtrl.tick(PAN_DT);
+const offsetBeforeAnchorChange = panCtrl.targetOffset.x;
+panCtrl.lookAt({ x: 99, y: 0, z: 0 });
+assert.equal(panCtrl.target.x, 99, "lookAt updates the anchor");
+assert.equal(panCtrl.targetOffset.x, offsetBeforeAnchorChange, "lookAt does not clear the pan offset");
+
 console.log("cameraController tests passed");
 
 function createStubRenderer() {

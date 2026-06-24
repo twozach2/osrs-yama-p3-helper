@@ -17,6 +17,9 @@ const YAW_PER_PX = (0.5 * Math.PI) / 180;
 const PITCH_PER_PX = (0.35 * Math.PI) / 180;
 const ZOOM_STEP_PER_NOTCH = 0.6;
 const WHEEL_PIXELS_PER_NOTCH = 100;
+const EDGE_PAN_DISTANCE_PX = 24;
+const EDGE_PAN_SPEED = 4;
+const MAX_TICK_DT = 0.05;
 const NEAR = 0.1;
 const FAR = 100;
 
@@ -25,9 +28,11 @@ export class CameraController {
     this.canvas = canvas ?? null;
     this.renderer = renderer ?? null;
     this.fixedMode = false;
+    this.edgePanEnabled = false;
 
     this.camera = new THREE.PerspectiveCamera(FOV_DEGREES, 1, NEAR, FAR);
     this.target = new THREE.Vector3(0, 0, 0);
+    this.targetOffset = new THREE.Vector3(0, 0, 0);
     this.yaw = DEFAULT_YAW;
     this.pitch = DEFAULT_PITCH;
     this.distance = DEFAULT_DISTANCE;
@@ -35,11 +40,22 @@ export class CameraController {
 
     this.raycaster = new THREE.Raycaster();
     this.floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+    this._cursorClient = null;
   }
 
   setFixedMode(value) {
     this.fixedMode = !!value;
     this.resize();
+  }
+
+  setEdgePan(enabled) {
+    this.edgePanEnabled = !!enabled;
+  }
+
+  resetTargetOffset() {
+    this.targetOffset.set(0, 0, 0);
+    this.applyPose();
   }
 
   resize() {
@@ -121,6 +137,7 @@ export class CameraController {
       event.preventDefault();
     };
     const onPointerMove = (event) => {
+      this._cursorClient = { clientX: event.clientX, clientY: event.clientY };
       if (!dragging || event.pointerId !== activePointer) return;
       const dx = event.clientX - lastX;
       const dy = event.clientY - lastY;
@@ -135,6 +152,9 @@ export class CameraController {
       activePointer = null;
       try { target.releasePointerCapture?.(event.pointerId); } catch { /* not supported */ }
     };
+    const onPointerLeave = () => {
+      this._cursorClient = null;
+    };
 
     const onWheel = (event) => {
       if (!event.deltaY) return;
@@ -147,6 +167,7 @@ export class CameraController {
     target.addEventListener("pointerup", onPointerEnd);
     target.addEventListener("pointercancel", onPointerEnd);
     target.addEventListener("lostpointercapture", onPointerEnd);
+    target.addEventListener("pointerleave", onPointerLeave);
     target.addEventListener("wheel", onWheel, { passive: false });
 
     this._detach = () => {
@@ -155,6 +176,7 @@ export class CameraController {
       target.removeEventListener("pointerup", onPointerEnd);
       target.removeEventListener("pointercancel", onPointerEnd);
       target.removeEventListener("lostpointercapture", onPointerEnd);
+      target.removeEventListener("pointerleave", onPointerLeave);
       target.removeEventListener("wheel", onWheel);
       this._detach = null;
     };
@@ -176,14 +198,42 @@ export class CameraController {
     // camera sits south of (and above) its target looking north, with yaw=0
     // matching the in-game default angle. Yaw rotates the camera around the
     // target's +Y axis (positive yaw -> camera moves east).
+    const fx = this.target.x + this.targetOffset.x;
+    const fy = this.target.y + this.targetOffset.y;
+    const fz = this.target.z + this.targetOffset.z;
     const horizontal = Math.cos(this.pitch) * this.distance;
     const vertical = Math.sin(this.pitch) * this.distance;
     this.camera.position.set(
-      this.target.x + Math.sin(this.yaw) * horizontal,
-      this.target.y + vertical,
-      this.target.z + Math.cos(this.yaw) * horizontal
+      fx + Math.sin(this.yaw) * horizontal,
+      fy + vertical,
+      fz + Math.cos(this.yaw) * horizontal
     );
-    this.camera.lookAt(this.target);
+    this.camera.lookAt(fx, fy, fz);
+  }
+
+  tick(dtSec) {
+    if (!Number.isFinite(dtSec) || dtSec <= 0) return;
+    const dt = Math.min(MAX_TICK_DT, dtSec);
+    if (!this.edgePanEnabled || this.fixedMode) return;
+    if (!this._cursorClient || !this.canvas || typeof this.canvas.getBoundingClientRect !== "function") return;
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const x = this._cursorClient.clientX - rect.left;
+    const y = this._cursorClient.clientY - rect.top;
+    if (x < -EDGE_PAN_DISTANCE_PX || y < -EDGE_PAN_DISTANCE_PX
+      || x > rect.width + EDGE_PAN_DISTANCE_PX || y > rect.height + EDGE_PAN_DISTANCE_PX) return;
+    let panX = 0;
+    let panZ = 0;
+    if (x < EDGE_PAN_DISTANCE_PX) panX = -1;
+    else if (x > rect.width - EDGE_PAN_DISTANCE_PX) panX = 1;
+    if (y < EDGE_PAN_DISTANCE_PX) panZ = -1;
+    else if (y > rect.height - EDGE_PAN_DISTANCE_PX) panZ = 1;
+    if (panX === 0 && panZ === 0) return;
+    const cos = Math.cos(this.yaw);
+    const sin = Math.sin(this.yaw);
+    this.targetOffset.x += (panX * cos + panZ * sin) * EDGE_PAN_SPEED * dt;
+    this.targetOffset.z += (-panX * sin + panZ * cos) * EDGE_PAN_SPEED * dt;
+    this.applyPose();
   }
 
   pickGround(clientX, clientY) {
@@ -216,6 +266,8 @@ export const CAMERA_DEFAULTS = Object.freeze({
   pitchPerPx: PITCH_PER_PX,
   zoomStepPerNotch: ZOOM_STEP_PER_NOTCH,
   wheelPixelsPerNotch: WHEEL_PIXELS_PER_NOTCH,
+  edgePanDistancePx: EDGE_PAN_DISTANCE_PX,
+  edgePanSpeed: EDGE_PAN_SPEED,
   fixedModeWidth: FIXED_MODE_WIDTH,
   fixedModeHeight: FIXED_MODE_HEIGHT,
   fixedModeAspect: FIXED_MODE_ASPECT,

@@ -47,6 +47,7 @@ const ui = {
   showMarkers: document.querySelector("#showMarkers"),
   strictWaypoints: document.querySelector("#strictWaypoints"),
   fixedMode: document.querySelector("#fixedMode"),
+  edgePan: document.querySelector("#edgePan"),
   status: document.querySelector("#status"),
   eventLog: document.querySelector("#eventLog"),
   prayerButtons: [...document.querySelectorAll("[data-prayer]")],
@@ -119,6 +120,11 @@ function init() {
   ui.fixedMode.addEventListener("change", () => {
     document.documentElement.classList.toggle("fixed-mode", ui.fixedMode.checked);
     gameScene.cameraController.setFixedMode(ui.fixedMode.checked);
+    if (ui.fixedMode.checked) gameScene.cameraController.resetTargetOffset();
+  });
+  ui.edgePan.addEventListener("change", () => {
+    gameScene.cameraController.setEdgePan(ui.edgePan.checked);
+    if (!ui.edgePan.checked) gameScene.cameraController.resetTargetOffset();
   });
   ui.markers.addEventListener("change", () => gameScene.forceStaticRefresh());
   ui.showGrid.addEventListener("change", () => gameScene.forceStaticRefresh());
@@ -173,6 +179,7 @@ function loop(now) {
     }
   }
 
+  gameScene.cameraController.tick(elapsed / 1000);
   gameScene.render(engine.getSnapshot(), accumulator / TICK_MS, {
     markerPresetId: ui.markers.value,
     showGrid: ui.showGrid.checked,
