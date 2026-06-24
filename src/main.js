@@ -652,13 +652,32 @@ class ThreeGameScene {
     const position = this.playerVisualPosition(snapshot, partialTick);
     this.playerGroup.position.set(position.x, 0.04 + Math.sin((snapshot.tick + partialTick) * Math.PI * 2) * 0.03, position.z);
 
-    const next = snapshot.queuedPath[0] ?? snapshot.target ?? snapshot.player;
-    const from = this.tileToWorld(snapshot.player, 0);
-    const to = this.tileToWorld(next, 0);
-    const dx = to.x - from.x;
-    const dz = to.z - from.z;
-    if (Math.abs(dx) + Math.abs(dz) > 0.01) {
-      this.playerGroup.rotation.y = Math.atan2(dx, dz);
+    // Face direction = vector of the segment currently being walked. Using
+    // the same `moveSegments` source as `playerVisualPosition` keeps facing
+    // and position in lockstep, instead of looking one tick ahead via
+    // `queuedPath[0]` (which made the player face the *next* tile after the
+    // current step -- a tick-stale rotation when the user requeues a path
+    // mid-walk).
+    const segments = snapshot.moveSegments?.length ? snapshot.moveSegments : null;
+    if (segments) {
+      const scaled = Math.min(0.999, Math.max(0, partialTick)) * segments.length;
+      const segIndex = Math.min(segments.length - 1, Math.floor(scaled));
+      const segment = segments[segIndex];
+      const dx = segment.to.x - segment.from.x;
+      const dz = segment.to.y - segment.from.y;
+      if (Math.abs(dx) + Math.abs(dz) > 0.01) {
+        this.playerGroup.rotation.y = Math.atan2(dx, dz);
+      } else if (snapshot.queuedPath?.length > 0) {
+        // Player tile hasn't ticked yet but a path is queued -- face the
+        // first upcoming step so they don't stand frozen pointing the wrong
+        // way on the first frame after a new click.
+        const toTile = snapshot.queuedPath[0];
+        const fdx = toTile.x - snapshot.player.x;
+        const fdz = toTile.y - snapshot.player.y;
+        if (Math.abs(fdx) + Math.abs(fdz) > 0.01) {
+          this.playerGroup.rotation.y = Math.atan2(fdx, fdz);
+        }
+      }
     }
 
     if (this.playerWeapon) {
