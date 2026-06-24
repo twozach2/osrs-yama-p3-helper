@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { AssetPack } from "./assetPack.js";
+import { CameraController } from "./cameraController.js";
 import { SimulatorEngine } from "./engine.js";
 import {
   getAllMarkerPresets,
@@ -308,12 +309,7 @@ class ThreeGameScene {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    this.camera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 100);
-    this.camera.position.set(11, 13, 14);
-    this.camera.lookAt(0, 0, 0);
-
-    this.raycaster = new THREE.Raycaster();
-    this.floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    this.cameraController = new CameraController({ canvas: this.canvas, renderer: this.renderer });
     this.assetPack = new AssetPack({ canvas: this.canvas, disposeObject });
 
     this.staticGroup = new THREE.Group();
@@ -340,19 +336,11 @@ class ThreeGameScene {
   }
 
   resize() {
-    const width = window.innerWidth;
-    const height = window.innerWidth <= 820 ? Math.floor(window.innerHeight * 0.62) : window.innerHeight;
-    const panelWidth = window.innerWidth <= 820 ? 0 : 292;
-    const visibleWidth = Math.max(320, width - panelWidth);
-    const aspect = visibleWidth / Math.max(1, height);
-    const frustum = aspect > 1 ? 18 : 22;
+    this.cameraController.resize();
+  }
 
-    this.renderer.setSize(width, height, false);
-    this.camera.left = (-frustum * aspect) / 2;
-    this.camera.right = (frustum * aspect) / 2;
-    this.camera.top = frustum / 2;
-    this.camera.bottom = -frustum / 2;
-    this.camera.updateProjectionMatrix();
+  get camera() {
+    return this.cameraController.camera;
   }
 
   forceStaticRefresh() {
@@ -360,16 +348,8 @@ class ThreeGameScene {
   }
 
   pickTile(clientX, clientY) {
-    const rect = this.canvas.getBoundingClientRect();
-    const x = ((clientX - rect.left) / rect.width) * 2 - 1;
-    const y = -(((clientY - rect.top) / rect.height) * 2 - 1);
-    this.raycaster.setFromCamera({ x, y }, this.camera);
-
-    const hit = new THREE.Vector3();
-    if (!this.raycaster.ray.intersectPlane(this.floorPlane, hit)) {
-      return null;
-    }
-
+    const hit = this.cameraController.pickGround(clientX, clientY);
+    if (!hit) return null;
     return this.worldToTile(hit);
   }
 
@@ -634,12 +614,11 @@ class ThreeGameScene {
   updateCameraTarget(snapshot, partialTick) {
     const player = this.playerVisualPosition(snapshot, partialTick);
     const yama = this.tileToWorld(rectCenter(this.scenario.yama), 0);
-    const center = new THREE.Vector3(
-      player.x * 0.45 + yama.x * 0.55,
-      0,
-      player.z * 0.45 + yama.z * 0.55
-    );
-    this.camera.lookAt(center);
+    this.cameraController.lookAt({
+      x: player.x * 0.45 + yama.x * 0.55,
+      y: 0,
+      z: player.z * 0.45 + yama.z * 0.55
+    });
   }
 
   drawUnsafeZone(snapshot) {
