@@ -123,7 +123,7 @@ async function refs(cache, indices, args) {
 
     console.table(rows);
     if (sawMissingBzip) {
-      console.log("\nSome reference tables are bzip2-compressed. Install the optional decoder with: npm.cmd install --no-save seek-bzip");
+      console.log("\nSome reference tables are bzip2-compressed. Install the optional decoder with: npm install --no-save seek-bzip");
     }
     return;
   }

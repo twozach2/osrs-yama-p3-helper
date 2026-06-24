@@ -271,7 +271,7 @@ function loadSeekBzip() {
   }
 
   if (!seekBzip?.decode) {
-    const error = new Error("Bzip2 cache archives require the optional dependency seek-bzip. Install it with: npm.cmd install --no-save seek-bzip");
+    const error = new Error("Bzip2 cache archives require the optional dependency seek-bzip. Install it with: npm install --no-save seek-bzip");
     error.code = "MISSING_BZIP2_DECODER";
     throw error;
   }

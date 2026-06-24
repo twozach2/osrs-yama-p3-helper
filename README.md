@@ -8,8 +8,8 @@ The current data pass is based on jeremiah855's video, "ROBOFLY - Computer Optim
 
 From this folder:
 
-```powershell
-npm.cmd install
+```bash
+npm install
 node server.mjs
 ```
 
@@ -17,17 +17,18 @@ Then open `http://localhost:5173`.
 
 If port `5173` is already in use, either close the other running server or start this one on a different port:
 
-```powershell
-$env:PORT=5174; node server.mjs
+```bash
+PORT=5174 node server.mjs           # bash / zsh
+$env:PORT=5174; node server.mjs     # PowerShell
 ```
 
-You can sanity-check the simulation core with:
+You can sanity-check the simulation with:
 
-```powershell
-node tests/engine.test.mjs
+```bash
+npm test
 ```
 
-If you prefer npm from PowerShell on Windows, use `npm.cmd test` if your execution policy blocks `npm.ps1`.
+On Windows PowerShell, use `npm.cmd test` if your execution policy blocks `npm.ps1`.
 
 ## What Is In Place
 
@@ -54,47 +55,32 @@ The sim is now reactive: Yama responds to your position and state, and damage is
 
 The app supports local user-provided OSRS asset packs through `public/assets/osrs/manifest.json`: `.glb` / `.gltf` models, transparent sprite images, and WOFF2 fonts. See `docs/osrs-asset-pipeline.md` for the conversion and drop-in workflow. Jagex-owned cache assets are intentionally ignored by Git and should not be redistributed from this repo.
 
-To inspect a local RuneLite cache:
+The asset exporter reads a local OSRS/RuneLite JS5 cache and never commits its output. Set `RUNELITE_CACHE` (or pass `--cache` explicitly) to wherever RuneLite stores `main_file_cache.dat2` on your machine. Typical locations:
 
-```powershell
-npm.cmd run assets:inspect -- --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --sample 3
+- macOS / Linux: `~/.runelite/jagexcache/oldschool/LIVE`
+- Windows: `%USERPROFILE%\.runelite\jagexcache\oldschool\LIVE`
+
+```bash
+# bash / zsh
+export RUNELITE_CACHE="$HOME/.runelite/jagexcache/oldschool/LIVE"
 ```
 
-To read cache reference-table metadata:
-
 ```powershell
-npm.cmd install --no-save seek-bzip
-npm.cmd run assets:refs -- --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --index 7 --limit 25
+# PowerShell
+$env:RUNELITE_CACHE = "$env:USERPROFILE\.runelite\jagexcache\oldschool\LIVE"
 ```
 
-To search the local cache for Yama NPC definitions:
+Then:
 
-```powershell
-npm.cmd run assets:npc-search -- --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --name yama --json
+```bash
+npm install --no-save seek-bzip   # one-time, for bzip2-compressed reference tables
+npm run assets:inspect    -- --cache "$RUNELITE_CACHE" --sample 3
+npm run assets:refs       -- --cache "$RUNELITE_CACHE" --index 7 --limit 25
+npm run assets:npc-search -- --cache "$RUNELITE_CACHE" --name yama --json
+npm run assets:npc-export-glb -- --cache "$RUNELITE_CACHE" --id <npc-id> --activate
 ```
 
-Current local-cache Yama target:
-
-- NPC `15700`: `Yama`, size `5`, combat `1524`, models `10468`, `10338`, `10340`, idle `12140`, walk `12141`.
-- Other combat Yama candidates found: `14176` and `15555`, using the same model and base idle/walk animations.
-
-To export the raw Yama model archives locally:
-
-```powershell
-npm.cmd run assets:npc-export-raw -- --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --id 15700
-```
-
-To generate and activate a local Yama GLB:
-
-```powershell
-npm.cmd run assets:npc-export-glb -- --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --id 15700 --activate
-```
-
-To run the current draft exporter:
-
-```powershell
-npm.cmd run assets:export -- --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE"
-```
+`assets:npc-search` reports the current NPC, model, and animation IDs from your cache; use whichever the search returns rather than committing them here, since they drift between cache revisions.
 
 The exporter currently reads raw JS5 cache groups, decodes JS5 reference tables, searches NPC configs, and converts current type-3 OSRS model archives into local GLB files. It does not yet decode sequence/frame animations or sprite archives into PNG; those are the next layers.
 

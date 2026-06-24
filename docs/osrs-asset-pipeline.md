@@ -117,23 +117,29 @@ RuneLite is useful because its repo includes cache-reading code. OpenRS2 is usef
    - Sprite IDs for orbs, hitsplats, prayers, projectiles, and other UI overlays.
    - Font assets for UI text and small stat/hitsplat text.
 
-   The current exporter can inspect a local RuneLite JS5 cache and decode reference-table metadata:
+   The current exporter can inspect a local RuneLite JS5 cache and decode reference-table metadata. Set `RUNELITE_CACHE` to your local cache root first (see the README for typical Windows and macOS/Linux paths):
 
-   ```powershell
-   npm.cmd install --no-save seek-bzip
-   npm.cmd run assets:refs -- --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --index 2 --limit 25
-   npm.cmd run assets:refs -- --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --index 7 --limit 25
-   npm.cmd run assets:refs -- --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --index 8 --limit 25
-   npm.cmd run assets:npc-search -- --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --name yama --json
+   ```bash
+   npm install --no-save seek-bzip
+   npm run assets:refs       -- --cache "$RUNELITE_CACHE" --index 2 --limit 25
+   npm run assets:refs       -- --cache "$RUNELITE_CACHE" --index 7 --limit 25
+   npm run assets:refs       -- --cache "$RUNELITE_CACHE" --index 8 --limit 25
+   npm run assets:npc-search -- --cache "$RUNELITE_CACHE" --name yama --json
    ```
 
-   Current local-cache Yama target data:
+   The search output reports NPC ID, size, combat level, model archive IDs, and idle/walk animation IDs for every Yama match. Use those IDs in the export commands below; they're intentionally not committed here because they shift between cache revisions.
 
-   - NPC `15700`: `Yama`, size `5`, combat `1524`.
-   - Model archives: `10468`, `10338`, `10340` in index `7`.
-   - Idle/walk animations: `12140`, `12141`.
-   - Raw model export command: `npm.cmd run assets:npc-export-raw -- --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --id 15700`.
-   - GLB export command: `npm.cmd run assets:npc-export-glb -- --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --id 15700 --activate`.
+   Raw model export:
+
+   ```bash
+   npm run assets:npc-export-raw -- --cache "$RUNELITE_CACHE" --id <npc-id>
+   ```
+
+   GLB export and activate:
+
+   ```bash
+   npm run assets:npc-export-glb -- --cache "$RUNELITE_CACHE" --id <npc-id> --activate
+   ```
 
 2. Export raw model geometry:
    - Vertices.

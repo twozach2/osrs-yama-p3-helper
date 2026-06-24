@@ -4,29 +4,36 @@ This tool reads a local Old School RuneScape JS5 disk cache and prepares local-o
 
 Do not commit generated assets. They are Jagex-owned cache data. The repo ignores the generated asset folders under `public/assets/osrs/`.
 
-## Your Cache Path
+## Cache Path
 
-On this machine RuneLite cache files were found at:
+Point `--cache` at the folder that contains `main_file_cache.dat2` and `main_file_cache.idx*`. Typical locations:
 
-```powershell
-C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE
+- macOS / Linux: `~/.runelite/jagexcache/oldschool/LIVE`
+- Windows: `%USERPROFILE%\.runelite\jagexcache\oldschool\LIVE`
+
+To avoid repeating the path, export it once per shell:
+
+```bash
+export RUNELITE_CACHE="$HOME/.runelite/jagexcache/oldschool/LIVE"   # bash / zsh
 ```
 
-That folder contains `main_file_cache.dat2` and `main_file_cache.idx*` files.
+```powershell
+$env:RUNELITE_CACHE = "$env:USERPROFILE\.runelite\jagexcache\oldschool\LIVE"  # PowerShell
+```
 
 ## Commands
 
 Inspect the cache:
 
-```powershell
-node tools/osrs-cache-exporter/export.mjs inspect --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --sample 3
+```bash
+node tools/osrs-cache-exporter/export.mjs inspect --cache "$RUNELITE_CACHE" --sample 3
 ```
 
 Read reference-table metadata for one index:
 
-```powershell
-npm.cmd install --no-save seek-bzip
-node tools/osrs-cache-exporter/export.mjs refs --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --index 7 --limit 25
+```bash
+npm install --no-save seek-bzip
+node tools/osrs-cache-exporter/export.mjs refs --cache "$RUNELITE_CACHE" --index 7 --limit 25
 ```
 
 Useful indices while chasing visual assets:
@@ -35,40 +42,40 @@ Useful indices while chasing visual assets:
 - `7` = models.
 - `8` = sprites.
 
-Find Yama NPC definitions:
+Find NPC definitions by name:
 
-```powershell
-node tools/osrs-cache-exporter/export.mjs npc-search --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --name yama --json
+```bash
+node tools/osrs-cache-exporter/export.mjs npc-search --cache "$RUNELITE_CACHE" --name yama --json
 ```
 
 Dump one decoded NPC definition:
 
-```powershell
-node tools/osrs-cache-exporter/export.mjs npc --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --id 15700
+```bash
+node tools/osrs-cache-exporter/export.mjs npc --cache "$RUNELITE_CACHE" --id <npc-id>
 ```
 
 Export one NPC's raw model archives:
 
-```powershell
-node tools/osrs-cache-exporter/export.mjs npc-export-raw --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --id 15700
+```bash
+node tools/osrs-cache-exporter/export.mjs npc-export-raw --cache "$RUNELITE_CACHE" --id <npc-id>
 ```
 
 Convert one NPC's type-3 model archives into a browser GLB and activate the local manifest:
 
-```powershell
-node tools/osrs-cache-exporter/export.mjs npc-export-glb --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --id 15700 --activate
+```bash
+node tools/osrs-cache-exporter/export.mjs npc-export-glb --cache "$RUNELITE_CACHE" --id <npc-id> --activate
 ```
 
 Extract one raw archive group:
 
-```powershell
-node tools/osrs-cache-exporter/export.mjs extract-raw --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --index 7 --archive 0 --name example-model
+```bash
+node tools/osrs-cache-exporter/export.mjs extract-raw --cache "$RUNELITE_CACHE" --index 7 --archive 0 --name example-model
 ```
 
 Run the draft export:
 
-```powershell
-node tools/osrs-cache-exporter/export.mjs export --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE"
+```bash
+node tools/osrs-cache-exporter/export.mjs export --cache "$RUNELITE_CACHE"
 ```
 
 The draft export writes:
@@ -95,7 +102,7 @@ This first pass can:
 - List cache indices and archive counts.
 - Read `.idx` entries and `.dat2` sector chains.
 - Decode uncompressed and gzip-compressed archive containers.
-- Decode bzip2-compressed archive containers after `seek-bzip` is installed locally with `npm.cmd install --no-save seek-bzip`.
+- Decode bzip2-compressed archive containers after `seek-bzip` is installed locally with `npm install --no-save seek-bzip`.
 - Decode JS5 reference tables from `idx255` and list archive/file metadata.
 - Unpack multi-file JS5 groups.
 - Decode enough NPC config data to search names, model IDs, animation IDs, combat levels, stats, actions, and params.
@@ -105,13 +112,7 @@ This first pass can:
 - Preserve unsupported compressed containers for later decoding.
 - Generate a draft manifest and raw export report.
 
-Useful Yama IDs from the current local cache:
-
-- Combat Yama candidates: `14176`, `15555`, `15700`.
-- Best first model target: NPC `15700` (`Yama`, size `5`, combat `1524`, HP param/stat `5000`).
-- Yama model archives: `10468`, `10338`, `10340` in index `7`.
-- Yama idle/walk animations: `12140`, `12141`.
-- Generated local GLB path: `public/assets/osrs/yama.glb`.
+Run `npm run assets:npc-search -- --cache "$RUNELITE_CACHE" --name yama --json` against your own cache to discover the current NPC, model, and animation IDs. They are intentionally not pinned in this repo since they drift between cache revisions. Generated local GLBs land at `public/assets/osrs/<name>.glb`, which is `.gitignore`d.
 
 Next layers:
 
