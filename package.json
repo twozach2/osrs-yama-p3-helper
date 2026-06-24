@@ -12,9 +12,17 @@
     "assets:npc": "node tools/osrs-cache-exporter/export.mjs npc",
     "assets:npc-export-raw": "node tools/osrs-cache-exporter/export.mjs npc-export-raw",
     "assets:npc-export-glb": "node tools/osrs-cache-exporter/export.mjs npc-export-glb",
-    "assets:export": "node tools/osrs-cache-exporter/export.mjs export"
+    "assets:export": "node tools/osrs-cache-exporter/export.mjs export",
+    "extract:models": "node tools/extract-models/extract.mjs",
+    "extract:yama": "node tools/extract-models/extract.mjs yama",
+    "extract:player": "node tools/extract-models/extract.mjs player"
   },
   "dependencies": {
     "three": "^0.184.0"
+  },
+  "devDependencies": {
+    "@gltf-transform/cli": "^4.4.0",
+    "osrscachereader": "^1.1.3",
+    "seek-bzip": "^2.0.0"
   }
 }

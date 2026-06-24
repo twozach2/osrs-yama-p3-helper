@@ -13,3 +13,5 @@ public/assets/osrs/fonts/
 public/assets/osrs/models/
 public/assets/osrs/raw/
 public/assets/osrs/sprites/
+tools/extract-models/cache
+tools/extract-models/out/
