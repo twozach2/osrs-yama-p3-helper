@@ -67,6 +67,7 @@ export class CameraController {
       this.renderer.setSize(dims.width, dims.height, dims.updateStyle);
     }
     this.applyAspect(dims.aspect);
+    this.applyViewOffset();
   }
 
   computeViewport() {
@@ -108,11 +109,27 @@ export class CameraController {
     };
   }
 
-  computeViewShift() {
-    if (this.fixedMode) return 0;
-    if (!this._panelInsetRight || !this._canvasHeight) return 0;
-    const fovV = (this.camera.fov * Math.PI) / 180;
-    return (this._panelInsetRight * this.distance * Math.tan(fovV / 2)) / this._canvasHeight;
+  applyViewOffset() {
+    if (typeof this.camera.clearViewOffset !== "function") return;
+    if (this.fixedMode || !this._panelInsetRight || !this._canvasWidth || !this._canvasHeight) {
+      this.camera.clearViewOffset();
+      return;
+    }
+    // Render the actual canvas as a sub-region of a conceptual frame that is
+    // `_panelInsetRight` pixels wider than the canvas, with the sub-region
+    // starting at x = `_panelInsetRight`. The camera's principal point sits
+    // at the centre of the conceptual frame, which then falls at the centre
+    // of the *visible* portion of the canvas (everything left of the side
+    // panel), rather than the panel-occluded canvas centre.
+    const fullWidth = this._canvasWidth + this._panelInsetRight;
+    this.camera.setViewOffset(
+      fullWidth,
+      this._canvasHeight,
+      this._panelInsetRight,
+      0,
+      this._canvasWidth,
+      this._canvasHeight
+    );
   }
 
   applyAspect(aspect) {
@@ -218,28 +235,22 @@ export class CameraController {
     // OSRS default: north at top of screen, east on the right. That means the
     // camera sits south of (and above) its target looking north, with yaw=0
     // matching the in-game default angle. Yaw rotates the camera around the
-    // target's +Y axis (positive yaw -> camera moves east).
+    // target's +Y axis (positive yaw -> camera moves east). Horizontal
+    // panel-inset compensation is handled by camera.setViewOffset() in
+    // applyViewOffset(), so applyPose() can treat the target as the true
+    // anchor without depth-dependent shifting.
     const fx = this.target.x + this.targetOffset.x;
     const fy = this.target.y + this.targetOffset.y;
     const fz = this.target.z + this.targetOffset.z;
 
-    // Side-panel compensation: shift the lookAt point (and the camera with
-    // it) sideways in the camera's local +X direction so the anchor falls
-    // at the visible center of the canvas rather than the panel-occluded
-    // canvas center. computeViewShift returns 0 in fixed-mode and when the
-    // panel is stacked below the canvas.
-    const shift = this.computeViewShift();
-    const sfx = fx + shift * Math.cos(this.yaw);
-    const sfz = fz - shift * Math.sin(this.yaw);
-
     const horizontal = Math.cos(this.pitch) * this.distance;
     const vertical = Math.sin(this.pitch) * this.distance;
     this.camera.position.set(
-      sfx + Math.sin(this.yaw) * horizontal,
+      fx + Math.sin(this.yaw) * horizontal,
       fy + vertical,
-      sfz + Math.cos(this.yaw) * horizontal
+      fz + Math.cos(this.yaw) * horizontal
     );
-    this.camera.lookAt(sfx, fy, sfz);
+    this.camera.lookAt(fx, fy, fz);
   }
 
   tick(dtSec) {

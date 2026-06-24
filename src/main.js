@@ -628,7 +628,11 @@ class ThreeGameScene {
 
   updateCameraTarget(snapshot, partialTick) {
     const player = this.playerVisualPosition(snapshot, partialTick);
-    this.cameraController.lookAt({ x: player.x, y: 0, z: player.z });
+    // Aim at the player's mid-body (~0.86), not the foot (y=0). With pitch
+    // 55deg from horizontal, looking at the foot put the player body in the
+    // upper half of the screen; looking at the mid-body centres the player
+    // vertically.
+    this.cameraController.lookAt({ x: player.x, y: 0.86, z: player.z });
     this.updateSceneFog();
   }
 

@@ -200,30 +200,33 @@ panCtrl.lookAt({ x: 99, y: 0, z: 0 });
 assert.equal(panCtrl.target.x, 99, "lookAt updates the anchor");
 assert.equal(panCtrl.targetOffset.x, offsetBeforeAnchorChange, "lookAt does not clear the pan offset");
 
-// Side-panel view-shift (resizable mode, panel docked right)
-const shiftCtrl = new CameraController({ canvas: createStubCanvas(1280, 720), renderer: createStubRenderer() });
-assert.equal(shiftCtrl.computeViewShift(), 0, "view shift is 0 before resize() establishes viewport state");
-shiftCtrl.resize();
-const expectedShift = (CAMERA_DEFAULTS.panelWidthPx * shiftCtrl.distance
-  * Math.tan((CAMERA_DEFAULTS.fovDegrees * Math.PI) / 360)) / shiftCtrl._canvasHeight;
-assert.ok(Math.abs(shiftCtrl.computeViewShift() - expectedShift) < 1e-6,
-  `resizable mode shifts target by panel-inset worth of world units (expected ${expectedShift}, got ${shiftCtrl.computeViewShift()})`);
+// Side-panel view-offset (resizable mode, panel docked right)
+const offsetCtrl = new CameraController({ canvas: createStubCanvas(1280, 720), renderer: createStubRenderer() });
+assert.equal(offsetCtrl.camera.view, null, "view offset is not set before resize()");
 
-shiftCtrl.lookAt({ x: 0, y: 0, z: 0 });
-const cameraX = shiftCtrl.camera.position.x;
-assert.ok(Math.abs(cameraX - expectedShift) < 1e-6,
-  `camera position is offset by viewShift in +x at yaw 0 (expected ${expectedShift}, got ${cameraX})`);
+offsetCtrl.resize();
+assert.ok(offsetCtrl.camera.view && offsetCtrl.camera.view.enabled,
+  "resize() in resizable mode enables the perspective view offset");
+const view = offsetCtrl.camera.view;
+assert.equal(view.fullWidth, offsetCtrl._canvasWidth + CAMERA_DEFAULTS.panelWidthPx,
+  "fullWidth widens by exactly the panel inset so the camera principal point falls at the visible centre");
+assert.equal(view.offsetX, CAMERA_DEFAULTS.panelWidthPx,
+  "render sub-region starts one panel-width into the conceptual frame");
+assert.equal(view.width, offsetCtrl._canvasWidth);
+assert.equal(view.height, offsetCtrl._canvasHeight);
 
-shiftCtrl.setFixedMode(true);
-assert.equal(shiftCtrl.computeViewShift(), 0, "fixed-mode zeros the view shift");
-shiftCtrl.setFixedMode(false);
+// At yaw 0, lookAt should NOT move the camera off the player's column any more:
+// the panel compensation is in the projection, not the world position.
+offsetCtrl.lookAt({ x: 7, y: 0, z: 0 });
+assert.ok(Math.abs(offsetCtrl.camera.position.x - 7) < 1e-9,
+  `camera column tracks the anchor's x exactly at yaw 0 (got ${offsetCtrl.camera.position.x})`);
 
-// View shift scales with zoom distance
-const closeShift = shiftCtrl.computeViewShift();
-shiftCtrl.setDistance(CAMERA_DEFAULTS.maxDistance);
-const farShift = shiftCtrl.computeViewShift();
-assert.ok(farShift > closeShift,
-  `view shift grows with distance (close=${closeShift}, far=${farShift})`);
+offsetCtrl.setFixedMode(true);
+assert.equal(offsetCtrl.camera.view?.enabled ?? false, false,
+  "fixed-mode clears the view offset");
+offsetCtrl.setFixedMode(false);
+assert.ok(offsetCtrl.camera.view && offsetCtrl.camera.view.enabled,
+  "leaving fixed-mode re-enables the view offset");
 
 console.log("cameraController tests passed");
 
