@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node tests/engine.test.mjs && node tests/cache-reader.test.mjs && node tests/reference-table.test.mjs && node tests/group-config.test.mjs && node tests/model-glb.test.mjs",
+    "test": "node tests/run-all.mjs",
     "assets:inspect": "node tools/osrs-cache-exporter/export.mjs inspect",
     "assets:refs": "node tools/osrs-cache-exporter/export.mjs refs",
     "assets:npc-search": "node tools/osrs-cache-exporter/export.mjs npc-search",
