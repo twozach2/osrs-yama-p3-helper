@@ -1,6 +1,5 @@
 import * as THREE from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
+import { AssetPack } from "./assetPack.js";
 import { SimulatorEngine } from "./engine.js";
 import {
   getAllMarkerPresets,
@@ -23,19 +22,6 @@ const HIT_SPLAT_STACK_OFFSET = 0.35;
 const HAZARD_PULSE_PERIOD_TICKS = 2;
 const FIRE_TELEGRAPH_PALETTE = { start: 0x7a2200, end: 0xfde047 };
 const SHADOW_TELEGRAPH_PALETTE = { start: 0x2e1065, end: 0xd946ef };
-const ASSET_MANIFEST_PATH = "/assets/osrs/manifest.json";
-const ASSET_PACK_CLASS_PREFIX = "asset-sprite-";
-const HUD_SPRITE_VARS = {
-  orbHp: "--asset-orb-hp-image",
-  orbPrayer: "--asset-orb-prayer-image",
-  orbRun: "--asset-orb-run-image"
-};
-const HIT_SPLAT_SPRITES = {
-  miss: "hitsplatMiss",
-  poison: "hitsplatPoison",
-  burn: "hitsplatBurn",
-  default: "hitsplatDamage"
-};
 
 const ui = {
   tick: document.querySelector("#tick"),
@@ -235,7 +221,7 @@ function updateHud() {
   if (ui.hudHp) ui.hudHp.textContent = String(Math.max(0, Math.round(snapshot.player.hp)));
   if (ui.hudPray) ui.hudPray.textContent = String(Math.max(0, Math.round(snapshot.player.prayerPoints)));
   if (ui.hudRun) ui.hudRun.textContent = String(Math.max(0, Math.round(snapshot.player.runEnergy)));
-  if (ui.assetStatus && gameScene) ui.assetStatus.textContent = gameScene.assetStatusText();
+  if (ui.assetStatus && gameScene) ui.assetStatus.textContent = gameScene.assetPack.assetStatusText();
   if (ui.hudYamaFill) {
     const ratio = Math.max(0, snapshot.yama.hp / snapshot.yama.maxHp);
     ui.hudYamaFill.style.width = `${ratio * 100}%`;
@@ -324,13 +310,7 @@ class ThreeGameScene {
 
     this.raycaster = new THREE.Raycaster();
     this.floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-    this.gltfLoader = new GLTFLoader();
-    this.textureLoader = new THREE.TextureLoader();
-    this.assetModels = new Map();
-    this.assetSprites = new Map();
-    this.assetFonts = new Map();
-    this.assetManifest = null;
-    this.assetReport = createAssetReport("fallback", "Looking for a local OSRS asset pack...");
+    this.assetPack = new AssetPack({ canvas: this.canvas, disposeObject });
 
     this.staticGroup = new THREE.Group();
     this.markerGroup = new THREE.Group();
@@ -347,7 +327,11 @@ class ThreeGameScene {
     this.buildStaticWorld(true);
     this.buildYama();
     this.buildPlayer();
-    this.loadOptionalAssets();
+    this.assetPack.load({
+      yamaGroup: this.yamaGroup,
+      playerGroup: this.playerGroup,
+      onRefresh: () => this.forceStaticRefresh()
+    });
     this.resize();
   }
 
@@ -546,267 +530,6 @@ class ThreeGameScene {
     this.playerGroup.add(weapon);
 
     this.scene.add(this.playerGroup);
-  }
-
-  async loadOptionalAssets() {
-    this.setAssetReport(createAssetReport("loading", "Loading local OSRS asset pack..."));
-
-    try {
-      const response = await fetch(ASSET_MANIFEST_PATH, { cache: "no-store" });
-      if (!response.ok) {
-        this.resetAssetDomHooks();
-        this.setAssetReport(createAssetReport("fallback", "No local OSRS asset manifest found; using fallback primitives."));
-        return;
-      }
-
-      this.assetManifest = await response.json();
-      const validation = validateAssetManifest(this.assetManifest);
-      this.clearLoadedAssets();
-
-      const [fontReport, spriteReport, modelReport] = await Promise.all([
-        this.loadAssetFonts(this.assetManifest.fonts ?? {}),
-        this.loadAssetSprites(this.assetManifest.sprites ?? {}),
-        this.loadAssetModels(this.assetManifest.models ?? {})
-      ]);
-
-      this.applyAssetModel("yama", this.yamaGroup);
-      this.applyAssetModel("player", this.playerGroup);
-      this.applyAssetFontsToDocument();
-      this.applyAssetSpritesToDocument();
-      this.forceStaticRefresh();
-
-      const report = createAssetReport("local-osrs", "Local OSRS asset pack loaded.", {
-        version: String(this.assetManifest.version ?? 1),
-        loaded: {
-          fonts: fontReport.loaded,
-          sprites: spriteReport.loaded,
-          models: modelReport.loaded
-        },
-        warnings: [...validation.warnings, ...fontReport.warnings, ...spriteReport.warnings, ...modelReport.warnings],
-        errors: [...validation.errors, ...fontReport.errors, ...spriteReport.errors, ...modelReport.errors]
-      });
-      this.setAssetReport(report);
-    } catch (error) {
-      this.resetAssetDomHooks();
-      this.setAssetReport(createAssetReport("fallback", "OSRS asset manifest could not be loaded; using fallback primitives.", {
-        errors: [error.message]
-      }));
-      console.warn("OSRS asset manifest could not be loaded; using fallback primitives.", error);
-    }
-  }
-
-  async loadAssetModels(models) {
-    const report = createLoadReport();
-    const entries = Object.entries(models);
-
-    await Promise.all(entries.map(async ([id, rawConfig]) => {
-      const config = normalizeAssetConfig(rawConfig);
-      if (!config.path) {
-        report.warnings.push(`Model "${id}" is missing a path.`);
-        return;
-      }
-
-      try {
-        const gltf = await this.gltfLoader.loadAsync(config.path);
-        this.assetModels.set(id, { scene: gltf.scene, config });
-        report.loaded += 1;
-      } catch (error) {
-        report.errors.push(`Model "${id}" failed to load: ${error.message}`);
-      }
-    }));
-
-    return report;
-  }
-
-  async loadAssetSprites(sprites) {
-    const report = createLoadReport();
-    const entries = Object.entries(sprites);
-
-    await Promise.all(entries.map(async ([id, rawConfig]) => {
-      const config = normalizeAssetConfig(rawConfig);
-      if (!config.path) {
-        report.warnings.push(`Sprite "${id}" is missing a path.`);
-        return;
-      }
-
-      try {
-        const texture = await this.textureLoader.loadAsync(config.path);
-        texture.magFilter = THREE.NearestFilter;
-        texture.minFilter = THREE.NearestFilter;
-        texture.colorSpace = THREE.SRGBColorSpace;
-        texture.needsUpdate = true;
-        this.assetSprites.set(id, { texture, config });
-        report.loaded += 1;
-      } catch (error) {
-        report.errors.push(`Sprite "${id}" failed to load: ${error.message}`);
-      }
-    }));
-
-    return report;
-  }
-
-  async loadAssetFonts(fonts) {
-    const report = createLoadReport();
-    const entries = Object.entries(fonts);
-
-    if (entries.length > 0 && typeof FontFace === "undefined") {
-      report.warnings.push("This browser does not support FontFace; local font assets were skipped.");
-      return report;
-    }
-
-    await Promise.all(entries.map(async ([id, rawConfig]) => {
-      const config = normalizeAssetConfig(rawConfig);
-      if (!config.path) {
-        report.warnings.push(`Font "${id}" is missing a path.`);
-        return;
-      }
-
-      const family = config.family ?? `OSRS ${id}`;
-      try {
-        const face = new FontFace(family, `url("${config.path}")`, {
-          style: config.style ?? "normal",
-          weight: String(config.weight ?? "normal")
-        });
-        await face.load();
-        document.fonts.add(face);
-        this.assetFonts.set(id, { family, config, face });
-        report.loaded += 1;
-      } catch (error) {
-        report.errors.push(`Font "${id}" failed to load: ${error.message}`);
-      }
-    }));
-
-    return report;
-  }
-
-  applyAssetModel(id, targetGroup) {
-    const asset = this.assetModels.get(id);
-    if (!asset || !targetGroup) {
-      return;
-    }
-
-    for (const child of [...targetGroup.children]) {
-      if (child.userData.keepOnAssetSwap) {
-        continue;
-      }
-      targetGroup.remove(child);
-      disposeObject(child);
-    }
-
-    const model = SkeletonUtils.clone(asset.scene);
-    const scale = asset.config.scale ?? this.assetManifest?.scale ?? 1;
-    model.scale.setScalar(scale);
-    model.position.y = asset.config.yOffset ?? 0;
-    model.rotation.y = asset.config.rotationY ?? 0;
-    model.traverse((object) => {
-      if (object.isMesh) {
-        object.castShadow = true;
-        object.receiveShadow = true;
-        object.frustumCulled = false;
-      }
-    });
-    targetGroup.add(model);
-  }
-
-  applyAssetFontsToDocument() {
-    const font = this.assetFonts.get("ui")
-      ?? this.assetFonts.get("osrs")
-      ?? [...this.assetFonts.values()].find((entry) => entry.config.role === "ui")
-      ?? null;
-
-    if (!font) {
-      document.documentElement.style.removeProperty("--ui-font");
-      return;
-    }
-
-    document.documentElement.style.setProperty("--ui-font", `${quoteCssFontFamily(font.family)}, "Trebuchet MS", Arial, sans-serif`);
-  }
-
-  applyAssetSpritesToDocument() {
-    this.clearAssetSpriteClasses();
-
-    for (const [id, asset] of this.assetSprites) {
-      document.documentElement.classList.add(`${ASSET_PACK_CLASS_PREFIX}${safeCssIdent(id)}`);
-      const cssVar = HUD_SPRITE_VARS[id];
-      if (cssVar) {
-        document.documentElement.style.setProperty(cssVar, `url("${asset.config.path}")`);
-      }
-    }
-  }
-
-  resetAssetDomHooks() {
-    document.documentElement.style.removeProperty("--ui-font");
-    for (const cssVar of Object.values(HUD_SPRITE_VARS)) {
-      document.documentElement.style.removeProperty(cssVar);
-    }
-    this.clearAssetSpriteClasses();
-  }
-
-  clearAssetSpriteClasses() {
-    for (const className of [...document.documentElement.classList]) {
-      if (className.startsWith(ASSET_PACK_CLASS_PREFIX)) {
-        document.documentElement.classList.remove(className);
-      }
-    }
-  }
-
-  clearLoadedAssets() {
-    for (const asset of this.assetSprites.values()) {
-      asset.texture.dispose();
-    }
-    this.assetModels.clear();
-    this.assetSprites.clear();
-    this.assetFonts.clear();
-  }
-
-  hitSplatSpriteImage(hit) {
-    const spriteId = hit.kind === "miss"
-      ? HIT_SPLAT_SPRITES.miss
-      : hit.kind === "poison"
-        ? HIT_SPLAT_SPRITES.poison
-        : hit.kind === "burn"
-          ? HIT_SPLAT_SPRITES.burn
-          : HIT_SPLAT_SPRITES.default;
-    return this.assetSprites.get(spriteId)?.texture.image ?? null;
-  }
-
-  setAssetReport(report) {
-    this.assetReport = report;
-    this.canvas.dataset.assetMode = report.mode;
-    this.canvas.dataset.assetMessage = report.message;
-    this.canvas.dataset.assetManifestVersion = report.version ?? "";
-    this.canvas.dataset.assetFonts = String(report.loaded.fonts);
-    this.canvas.dataset.assetSprites = String(report.loaded.sprites);
-    this.canvas.dataset.assetModels = String(report.loaded.models);
-    this.canvas.dataset.assetWarnings = String(report.warnings.length);
-    this.canvas.dataset.assetErrors = String(report.errors.length);
-    if (report.errors.length > 0) {
-      this.canvas.dataset.assetError = report.errors.slice(0, 3).join(" | ");
-    } else {
-      delete this.canvas.dataset.assetError;
-    }
-    window.dispatchEvent(new CustomEvent("osrs-assets-updated"));
-  }
-
-  assetStatusText() {
-    const report = this.assetReport;
-    const counts = `models ${report.loaded.models}, sprites ${report.loaded.sprites}, fonts ${report.loaded.fonts}`;
-    if (report.mode === "local-osrs") {
-      const suffix = report.errors.length > 0 ? ` ${report.errors.length} error(s); check canvas debug data.` : "";
-      return `Local asset pack v${report.version ?? 1}: ${counts}.${suffix}`;
-    }
-    if (report.mode === "loading") {
-      return report.message;
-    }
-    return `${report.message} Loaded: ${counts}.`;
-  }
-
-  textSpriteFontFamily(role = "ui") {
-    const font = this.assetFonts.get(role)
-      ?? this.assetFonts.get("ui")
-      ?? this.assetFonts.get("osrs")
-      ?? null;
-    return font ? `${quoteCssFontFamily(font.family)}, Trebuchet MS, Arial, sans-serif` : "Trebuchet MS, Arial, sans-serif";
   }
 
   refreshStaticOverlays(snapshot, options) {
@@ -1079,7 +802,7 @@ class ThreeGameScene {
       position.x += (stackIndex - (stackCount - 1) / 2) * HIT_SPLAT_STACK_OFFSET;
 
       const style = splatStyle(hit);
-      const backgroundImage = this.hitSplatSpriteImage(hit);
+      const backgroundImage = this.assetPack.hitSplatSpriteImage(hit);
       const sprite = makeTextSprite(String(hit.amount), {
         fill: style.fill,
         stroke: style.stroke,
@@ -1088,7 +811,7 @@ class ThreeGameScene {
         border: backgroundImage ? undefined : style.border,
         shape: backgroundImage ? "rect" : "diamond",
         fontSize: 34,
-        fontFamily: this.textSpriteFontFamily("hitsplat"),
+        fontFamily: this.assetPack.textSpriteFontFamily("hitsplat"),
         scale: 0.78,
         opacity: alpha
       });
@@ -1200,7 +923,7 @@ class ThreeGameScene {
         fill: "#f6e983",
         stroke: "#000000",
         fontSize: 22,
-        fontFamily: this.textSpriteFontFamily("ui"),
+        fontFamily: this.assetPack.textSpriteFontFamily("ui"),
         scale: 0.36
       });
       sprite.position.set(position.x, 0.34, position.z + 0.62);
@@ -1214,7 +937,7 @@ class ThreeGameScene {
         fill: "#f6e983",
         stroke: "#000000",
         fontSize: 22,
-        fontFamily: this.textSpriteFontFamily("ui"),
+        fontFamily: this.assetPack.textSpriteFontFamily("ui"),
         scale: 0.36
       });
       sprite.position.set(position.x - 0.62, 0.34, position.z);
@@ -1525,93 +1248,6 @@ function hpBarFillMaterial(materials, ratio) {
   if (ratio >= 0.5) return materials.hpBarFillGreen;
   if (ratio >= 0.25) return materials.hpBarFillYellow;
   return materials.hpBarFillRed;
-}
-
-function createAssetReport(mode, message, options = {}) {
-  return {
-    mode,
-    message,
-    version: options.version ?? "",
-    loaded: {
-      fonts: options.loaded?.fonts ?? 0,
-      sprites: options.loaded?.sprites ?? 0,
-      models: options.loaded?.models ?? 0
-    },
-    warnings: options.warnings ?? [],
-    errors: options.errors ?? []
-  };
-}
-
-function createLoadReport() {
-  return { loaded: 0, warnings: [], errors: [] };
-}
-
-function validateAssetManifest(manifest) {
-  const report = { warnings: [], errors: [] };
-
-  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
-    report.errors.push("Manifest must be a JSON object.");
-    return report;
-  }
-
-  if (manifest.version === undefined) {
-    report.warnings.push("Manifest has no version; treating it as v1-compatible.");
-  } else if (Number(manifest.version) > 2) {
-    report.warnings.push(`Manifest version ${manifest.version} is newer than this loader; unknown fields will be ignored.`);
-  }
-
-  validateAssetSection(report, manifest.models, "models", true);
-  validateAssetSection(report, manifest.sprites, "sprites", false);
-  validateAssetSection(report, manifest.fonts, "fonts", false);
-
-  for (const [id, rawConfig] of Object.entries(manifest.models ?? {})) {
-    const config = normalizeAssetConfig(rawConfig);
-    const scale = config.scale ?? manifest.scale;
-    if (scale !== undefined && (!Number.isFinite(Number(scale)) || Number(scale) <= 0)) {
-      report.errors.push(`Model "${id}" has an invalid scale.`);
-    }
-  }
-
-  return report;
-}
-
-function validateAssetSection(report, section, name, required) {
-  if (section === undefined) {
-    if (required) {
-      report.warnings.push(`Manifest has no "${name}" section.`);
-    }
-    return;
-  }
-
-  if (!section || typeof section !== "object" || Array.isArray(section)) {
-    report.errors.push(`Manifest "${name}" section must be an object.`);
-    return;
-  }
-
-  for (const [id, rawConfig] of Object.entries(section)) {
-    const config = normalizeAssetConfig(rawConfig);
-    if (!config.path) {
-      report.warnings.push(`${name.slice(0, -1)} "${id}" has no path.`);
-    }
-  }
-}
-
-function normalizeAssetConfig(config) {
-  if (typeof config === "string") {
-    return { path: config };
-  }
-  if (!config || typeof config !== "object" || Array.isArray(config)) {
-    return {};
-  }
-  return config;
-}
-
-function quoteCssFontFamily(family) {
-  return `"${String(family).replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
-}
-
-function safeCssIdent(value) {
-  return String(value).replace(/[^a-zA-Z0-9_-]/g, "-");
 }
 
 function telegraphProgress(now, startTick, impactTick) {
