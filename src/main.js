@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { AssetPack } from "./assetPack.js";
 import { CameraController } from "./cameraController.js";
 import { SimulatorEngine } from "./engine.js";
+import { PixelPostFx } from "./postFx.js";
 import {
   getAllMarkerPresets,
   getDefaultMarkerPresetId,
@@ -61,6 +62,7 @@ const ui = {
   strictWaypoints: document.querySelector("#strictWaypoints"),
   fixedMode: document.querySelector("#fixedMode"),
   edgePan: document.querySelector("#edgePan"),
+  pixelMode: document.querySelector("#pixelMode"),
   status: document.querySelector("#status"),
   eventLog: document.querySelector("#eventLog"),
   prayerButtons: [...document.querySelectorAll("[data-prayer]")],
@@ -139,6 +141,11 @@ function init() {
     gameScene.cameraController.setEdgePan(ui.edgePan.checked);
     if (!ui.edgePan.checked) gameScene.cameraController.resetTargetOffset();
   });
+  if (ui.pixelMode) {
+    ui.pixelMode.addEventListener("change", () => {
+      gameScene.postFx.setEnabled(ui.pixelMode.checked);
+    });
+  }
   ui.markers.addEventListener("change", () => gameScene.forceStaticRefresh());
   ui.showGrid.addEventListener("change", () => gameScene.forceStaticRefresh());
   ui.showMethod.addEventListener("change", () => gameScene.forceStaticRefresh());
@@ -339,6 +346,7 @@ class ThreeGameScene {
 
     this.cameraController = new CameraController({ canvas: this.canvas, renderer: this.renderer });
     this.assetPack = new AssetPack({ canvas: this.canvas, disposeObject });
+    this.postFx = new PixelPostFx({ renderer: this.renderer, scale: 3 });
 
     this.staticGroup = new THREE.Group();
     this.markerGroup = new THREE.Group();
@@ -401,8 +409,9 @@ class ThreeGameScene {
     this.drawHitSplats(snapshot, partialTick);
     this.drawYamaHpBar(snapshot);
 
-    this.renderer.render(this.scene, this.camera);
+    this.postFx.render(this.scene, this.camera);
     this.canvas.dataset.sceneKind = "threejs";
+    this.canvas.dataset.pixelMode = this.postFx.enabled ? "on" : "off";
     this.canvas.dataset.renderer = "webgl";
     this.canvas.dataset.dynamicObjects = String(this.dynamicGroup.children.length);
     try {
