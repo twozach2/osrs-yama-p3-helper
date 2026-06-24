@@ -46,6 +46,7 @@ const ui = {
   showMethod: document.querySelector("#showMethod"),
   showMarkers: document.querySelector("#showMarkers"),
   strictWaypoints: document.querySelector("#strictWaypoints"),
+  fixedMode: document.querySelector("#fixedMode"),
   status: document.querySelector("#status"),
   eventLog: document.querySelector("#eventLog"),
   prayerButtons: [...document.querySelectorAll("[data-prayer]")],
@@ -115,6 +116,10 @@ function init() {
   ui.speed.addEventListener("input", updateHud);
   ui.runToggle.addEventListener("change", () => engine.setRunEnabled(ui.runToggle.checked));
   ui.strictWaypoints.addEventListener("change", () => engine.setStrictWaypoints(ui.strictWaypoints.checked));
+  ui.fixedMode.addEventListener("change", () => {
+    document.documentElement.classList.toggle("fixed-mode", ui.fixedMode.checked);
+    gameScene.cameraController.setFixedMode(ui.fixedMode.checked);
+  });
   ui.markers.addEventListener("change", () => gameScene.forceStaticRefresh());
   ui.showGrid.addEventListener("change", () => gameScene.forceStaticRefresh());
   ui.showMethod.addEventListener("change", () => gameScene.forceStaticRefresh());

@@ -2,6 +2,9 @@ import * as THREE from "three";
 
 const PANEL_BREAKPOINT_PX = 820;
 const PANEL_WIDTH_PX = 292;
+const FIXED_MODE_WIDTH = 765;
+const FIXED_MODE_HEIGHT = 503;
+const FIXED_MODE_ASPECT = FIXED_MODE_WIDTH / FIXED_MODE_HEIGHT;
 const FOV_DEGREES = 40;
 const DEFAULT_DISTANCE = 14;
 const MIN_DISTANCE = 6;
@@ -21,6 +24,7 @@ export class CameraController {
   constructor({ canvas, renderer } = {}) {
     this.canvas = canvas ?? null;
     this.renderer = renderer ?? null;
+    this.fixedMode = false;
 
     this.camera = new THREE.PerspectiveCamera(FOV_DEGREES, 1, NEAR, FAR);
     this.target = new THREE.Vector3(0, 0, 0);
@@ -33,22 +37,45 @@ export class CameraController {
     this.floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   }
 
+  setFixedMode(value) {
+    this.fixedMode = !!value;
+    this.resize();
+  }
+
   resize() {
     const dims = this.computeViewport();
     if (this.renderer && typeof this.renderer.setSize === "function") {
-      this.renderer.setSize(dims.width, dims.height, false);
+      this.renderer.setSize(dims.width, dims.height, dims.updateStyle);
     }
     this.applyAspect(dims.aspect);
   }
 
   computeViewport() {
-    const width = typeof window !== "undefined" ? window.innerWidth : 1280;
+    const winWidth = typeof window !== "undefined" ? window.innerWidth : 1280;
     const winHeight = typeof window !== "undefined" ? window.innerHeight : 720;
-    const height = width <= PANEL_BREAKPOINT_PX ? Math.floor(winHeight * 0.62) : winHeight;
-    const panelWidth = width <= PANEL_BREAKPOINT_PX ? 0 : PANEL_WIDTH_PX;
-    const visibleWidth = Math.max(320, width - panelWidth);
-    const aspect = visibleWidth / Math.max(1, height);
-    return { width, height, aspect };
+    const stacked = winWidth <= PANEL_BREAKPOINT_PX;
+    const panelWidth = stacked ? 0 : PANEL_WIDTH_PX;
+    const availableWidth = Math.max(320, winWidth - panelWidth);
+    const availableHeight = stacked ? Math.floor(winHeight * 0.62) : winHeight;
+
+    if (this.fixedMode) {
+      const widthByHeight = availableHeight * FIXED_MODE_ASPECT;
+      const fitW = Math.min(availableWidth, widthByHeight);
+      const fitH = fitW / FIXED_MODE_ASPECT;
+      return {
+        width: Math.floor(fitW),
+        height: Math.floor(fitH),
+        aspect: FIXED_MODE_ASPECT,
+        updateStyle: true
+      };
+    }
+
+    return {
+      width: winWidth,
+      height: availableHeight,
+      aspect: availableWidth / Math.max(1, availableHeight),
+      updateStyle: false
+    };
   }
 
   applyAspect(aspect) {
@@ -189,6 +216,9 @@ export const CAMERA_DEFAULTS = Object.freeze({
   pitchPerPx: PITCH_PER_PX,
   zoomStepPerNotch: ZOOM_STEP_PER_NOTCH,
   wheelPixelsPerNotch: WHEEL_PIXELS_PER_NOTCH,
+  fixedModeWidth: FIXED_MODE_WIDTH,
+  fixedModeHeight: FIXED_MODE_HEIGHT,
+  fixedModeAspect: FIXED_MODE_ASPECT,
   panelBreakpointPx: PANEL_BREAKPOINT_PX,
   panelWidthPx: PANEL_WIDTH_PX
 });

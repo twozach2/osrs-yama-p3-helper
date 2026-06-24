@@ -76,6 +76,27 @@ code {
   touch-action: none;
 }
 
+html.fixed-mode body {
+  background: #050505;
+}
+
+html.fixed-mode #world {
+  position: fixed;
+  inset: auto;
+  top: 50%;
+  left: calc(50% - 146px);
+  transform: translate(-50%, -50%);
+  border: 1px solid #0a0604;
+  box-shadow: 0 0 0 1px rgba(199, 154, 85, 0.45);
+}
+
+@media (max-width: 820px) {
+  html.fixed-mode #world {
+    left: 50%;
+    top: 31vh;
+  }
+}
+
 #panel {
   position: fixed;
   top: 0;

@@ -119,6 +119,29 @@ detach();
 assert.equal(stubCanvas.listeners.get("pointerdown").size, 0, "detach removes the pointerdown listener");
 assert.equal(stubCanvas.listeners.get("wheel").size, 0, "detach removes the wheel listener");
 
+// V2.5 fixed-mode viewport math
+const fixedCtrl = new CameraController({ canvas: createStubCanvas(800, 600), renderer: createStubRenderer() });
+const flexDims = fixedCtrl.computeViewport();
+assert.equal(flexDims.updateStyle, false, "resizable mode keeps CSS-driven sizing");
+
+fixedCtrl.fixedMode = true;
+const fixedDims = fixedCtrl.computeViewport();
+assert.ok(Math.abs(fixedDims.aspect - CAMERA_DEFAULTS.fixedModeAspect) < 1e-6,
+  `fixed-mode aspect locks to OSRS 765:503 (got ${fixedDims.aspect})`);
+assert.equal(fixedDims.updateStyle, true, "fixed-mode opts into inline canvas sizing");
+const fixedRatio = fixedDims.width / fixedDims.height;
+assert.ok(Math.abs(fixedRatio - CAMERA_DEFAULTS.fixedModeAspect) < 0.01,
+  `fixed-mode canvas dimensions hold the target aspect (got ${fixedRatio})`);
+
+const wideRenderer = createStubRenderer();
+const wideCtrl = new CameraController({ canvas: createStubCanvas(800, 600), renderer: wideRenderer });
+wideCtrl.setFixedMode(true);
+const setSizeCalls = wideRenderer.calls.filter((entry) => entry.kind === "setSize");
+assert.ok(setSizeCalls.length > 0, "setFixedMode(true) triggers renderer.setSize");
+assert.equal(setSizeCalls.at(-1).updateStyle, true, "fixed-mode resize asks renderer to update style");
+wideCtrl.setFixedMode(false);
+assert.equal(wideRenderer.calls.at(-1).updateStyle, false, "leaving fixed-mode goes back to CSS-driven sizing");
+
 console.log("cameraController tests passed");
 
 function createStubRenderer() {
