@@ -253,6 +253,11 @@ Pure aesthetics — no new behaviour. Each sub-step independent; ordering is by 
 
 ## V4 — Liveness (Motion & Sound)
 
+> **In progress.** Implementation pivoted from a custom Sequence/Frame
+> decoder to the community `osrscachereader` library. The architectural
+> targets below still stand; for current status, open items, and
+> estimates see [`docs/v4-liveness-status.md`](./v4-liveness-status.md).
+
 Where V1–V3 made the *picture* look like OSRS, V4 makes the *world* behave like OSRS. Two halves: animated assets driven by the exporter and runtime mixer, and procedural motion/sound that works even with no local asset pack present.
 
 Every sub-step must remain **primitive-safe** (look right with the fallback procedural Yama/player) and **tick-anchored** (motion that pauses with the engine, not wall-clock).
