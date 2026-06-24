@@ -1,6 +1,6 @@
-import * as THREE from "../node_modules/three/build/three.module.js";
-import { GLTFLoader } from "../node_modules/three/examples/jsm/loaders/GLTFLoader.js";
-import * as SkeletonUtils from "../node_modules/three/examples/jsm/utils/SkeletonUtils.js";
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 import { SimulatorEngine } from "./engine.js";
 import {
   getAllMarkerPresets,
@@ -16,6 +16,26 @@ import { TICK_MS, YAMA_P3_SCENARIO } from "./yamaP3Scenario.js";
 const canvas = document.querySelector("#world");
 let engine = null;
 let gameScene = null;
+
+const HIT_SPLAT_LIFETIME_TICKS = 5;
+const CLICK_MARKER_LIFETIME_TICKS = 500 / TICK_MS;
+const HIT_SPLAT_STACK_OFFSET = 0.35;
+const HAZARD_PULSE_PERIOD_TICKS = 2;
+const FIRE_TELEGRAPH_PALETTE = { start: 0x7a2200, end: 0xfde047 };
+const SHADOW_TELEGRAPH_PALETTE = { start: 0x2e1065, end: 0xd946ef };
+const ASSET_MANIFEST_PATH = "/assets/osrs/manifest.json";
+const ASSET_PACK_CLASS_PREFIX = "asset-sprite-";
+const HUD_SPRITE_VARS = {
+  orbHp: "--asset-orb-hp-image",
+  orbPrayer: "--asset-orb-prayer-image",
+  orbRun: "--asset-orb-run-image"
+};
+const HIT_SPLAT_SPRITES = {
+  miss: "hitsplatMiss",
+  poison: "hitsplatPoison",
+  burn: "hitsplatBurn",
+  default: "hitsplatDamage"
+};
 
 const ui = {
   tick: document.querySelector("#tick"),
@@ -42,6 +62,7 @@ const ui = {
   hudHp: document.querySelector("#hudHp"),
   hudPray: document.querySelector("#hudPray"),
   hudRun: document.querySelector("#hudRun"),
+  assetStatus: document.querySelector("#assetStatus"),
   hudYamaFill: document.querySelector("#hudYamaFill"),
   hudYamaText: document.querySelector("#hudYamaText")
 };
@@ -134,6 +155,7 @@ function init() {
 
   window.addEventListener("resize", () => gameScene.resize());
   window.addEventListener("keydown", handleKeydown);
+  window.addEventListener("osrs-assets-updated", updateHud);
 
   updateHud();
 }
@@ -213,6 +235,7 @@ function updateHud() {
   if (ui.hudHp) ui.hudHp.textContent = String(Math.max(0, Math.round(snapshot.player.hp)));
   if (ui.hudPray) ui.hudPray.textContent = String(Math.max(0, Math.round(snapshot.player.prayerPoints)));
   if (ui.hudRun) ui.hudRun.textContent = String(Math.max(0, Math.round(snapshot.player.runEnergy)));
+  if (ui.assetStatus && gameScene) ui.assetStatus.textContent = gameScene.assetStatusText();
   if (ui.hudYamaFill) {
     const ratio = Math.max(0, snapshot.yama.hp / snapshot.yama.maxHp);
     ui.hudYamaFill.style.width = `${ratio * 100}%`;
@@ -302,8 +325,12 @@ class ThreeGameScene {
     this.raycaster = new THREE.Raycaster();
     this.floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     this.gltfLoader = new GLTFLoader();
+    this.textureLoader = new THREE.TextureLoader();
     this.assetModels = new Map();
+    this.assetSprites = new Map();
+    this.assetFonts = new Map();
     this.assetManifest = null;
+    this.assetReport = createAssetReport("fallback", "Looking for a local OSRS asset pack...");
 
     this.staticGroup = new THREE.Group();
     this.markerGroup = new THREE.Group();
@@ -522,33 +549,134 @@ class ThreeGameScene {
   }
 
   async loadOptionalAssets() {
+    this.setAssetReport(createAssetReport("loading", "Loading local OSRS asset pack..."));
+
     try {
-      const response = await fetch("/assets/osrs/manifest.json", { cache: "no-store" });
+      const response = await fetch(ASSET_MANIFEST_PATH, { cache: "no-store" });
       if (!response.ok) {
-        this.canvas.dataset.assetMode = "fallback";
+        this.resetAssetDomHooks();
+        this.setAssetReport(createAssetReport("fallback", "No local OSRS asset manifest found; using fallback primitives."));
         return;
       }
 
       this.assetManifest = await response.json();
-      const entries = Object.entries(this.assetManifest.models ?? {});
-      await Promise.all(
-        entries.map(async ([id, config]) => {
-          if (!config.path) {
-            return;
-          }
-          const gltf = await this.gltfLoader.loadAsync(config.path);
-          this.assetModels.set(id, { scene: gltf.scene, config });
-        })
-      );
+      const validation = validateAssetManifest(this.assetManifest);
+      this.clearLoadedAssets();
+
+      const [fontReport, spriteReport, modelReport] = await Promise.all([
+        this.loadAssetFonts(this.assetManifest.fonts ?? {}),
+        this.loadAssetSprites(this.assetManifest.sprites ?? {}),
+        this.loadAssetModels(this.assetManifest.models ?? {})
+      ]);
 
       this.applyAssetModel("yama", this.yamaGroup);
       this.applyAssetModel("player", this.playerGroup);
-      this.canvas.dataset.assetMode = "local-osrs";
+      this.applyAssetFontsToDocument();
+      this.applyAssetSpritesToDocument();
+      this.forceStaticRefresh();
+
+      const report = createAssetReport("local-osrs", "Local OSRS asset pack loaded.", {
+        version: String(this.assetManifest.version ?? 1),
+        loaded: {
+          fonts: fontReport.loaded,
+          sprites: spriteReport.loaded,
+          models: modelReport.loaded
+        },
+        warnings: [...validation.warnings, ...fontReport.warnings, ...spriteReport.warnings, ...modelReport.warnings],
+        errors: [...validation.errors, ...fontReport.errors, ...spriteReport.errors, ...modelReport.errors]
+      });
+      this.setAssetReport(report);
     } catch (error) {
-      this.canvas.dataset.assetMode = "fallback";
-      this.canvas.dataset.assetError = error.message;
-      console.warn("OSRS asset manifest could not be loaded; using fallback models.", error);
+      this.resetAssetDomHooks();
+      this.setAssetReport(createAssetReport("fallback", "OSRS asset manifest could not be loaded; using fallback primitives.", {
+        errors: [error.message]
+      }));
+      console.warn("OSRS asset manifest could not be loaded; using fallback primitives.", error);
     }
+  }
+
+  async loadAssetModels(models) {
+    const report = createLoadReport();
+    const entries = Object.entries(models);
+
+    await Promise.all(entries.map(async ([id, rawConfig]) => {
+      const config = normalizeAssetConfig(rawConfig);
+      if (!config.path) {
+        report.warnings.push(`Model "${id}" is missing a path.`);
+        return;
+      }
+
+      try {
+        const gltf = await this.gltfLoader.loadAsync(config.path);
+        this.assetModels.set(id, { scene: gltf.scene, config });
+        report.loaded += 1;
+      } catch (error) {
+        report.errors.push(`Model "${id}" failed to load: ${error.message}`);
+      }
+    }));
+
+    return report;
+  }
+
+  async loadAssetSprites(sprites) {
+    const report = createLoadReport();
+    const entries = Object.entries(sprites);
+
+    await Promise.all(entries.map(async ([id, rawConfig]) => {
+      const config = normalizeAssetConfig(rawConfig);
+      if (!config.path) {
+        report.warnings.push(`Sprite "${id}" is missing a path.`);
+        return;
+      }
+
+      try {
+        const texture = await this.textureLoader.loadAsync(config.path);
+        texture.magFilter = THREE.NearestFilter;
+        texture.minFilter = THREE.NearestFilter;
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.needsUpdate = true;
+        this.assetSprites.set(id, { texture, config });
+        report.loaded += 1;
+      } catch (error) {
+        report.errors.push(`Sprite "${id}" failed to load: ${error.message}`);
+      }
+    }));
+
+    return report;
+  }
+
+  async loadAssetFonts(fonts) {
+    const report = createLoadReport();
+    const entries = Object.entries(fonts);
+
+    if (entries.length > 0 && typeof FontFace === "undefined") {
+      report.warnings.push("This browser does not support FontFace; local font assets were skipped.");
+      return report;
+    }
+
+    await Promise.all(entries.map(async ([id, rawConfig]) => {
+      const config = normalizeAssetConfig(rawConfig);
+      if (!config.path) {
+        report.warnings.push(`Font "${id}" is missing a path.`);
+        return;
+      }
+
+      const family = config.family ?? `OSRS ${id}`;
+      try {
+        const face = new FontFace(family, `url("${config.path}")`, {
+          style: config.style ?? "normal",
+          weight: String(config.weight ?? "normal")
+        });
+        await face.load();
+        document.fonts.add(face);
+        this.assetFonts.set(id, { family, config, face });
+        report.loaded += 1;
+      } catch (error) {
+        report.errors.push(`Font "${id}" failed to load: ${error.message}`);
+      }
+    }));
+
+    return report;
   }
 
   applyAssetModel(id, targetGroup) {
@@ -578,6 +706,107 @@ class ThreeGameScene {
       }
     });
     targetGroup.add(model);
+  }
+
+  applyAssetFontsToDocument() {
+    const font = this.assetFonts.get("ui")
+      ?? this.assetFonts.get("osrs")
+      ?? [...this.assetFonts.values()].find((entry) => entry.config.role === "ui")
+      ?? null;
+
+    if (!font) {
+      document.documentElement.style.removeProperty("--ui-font");
+      return;
+    }
+
+    document.documentElement.style.setProperty("--ui-font", `${quoteCssFontFamily(font.family)}, "Trebuchet MS", Arial, sans-serif`);
+  }
+
+  applyAssetSpritesToDocument() {
+    this.clearAssetSpriteClasses();
+
+    for (const [id, asset] of this.assetSprites) {
+      document.documentElement.classList.add(`${ASSET_PACK_CLASS_PREFIX}${safeCssIdent(id)}`);
+      const cssVar = HUD_SPRITE_VARS[id];
+      if (cssVar) {
+        document.documentElement.style.setProperty(cssVar, `url("${asset.config.path}")`);
+      }
+    }
+  }
+
+  resetAssetDomHooks() {
+    document.documentElement.style.removeProperty("--ui-font");
+    for (const cssVar of Object.values(HUD_SPRITE_VARS)) {
+      document.documentElement.style.removeProperty(cssVar);
+    }
+    this.clearAssetSpriteClasses();
+  }
+
+  clearAssetSpriteClasses() {
+    for (const className of [...document.documentElement.classList]) {
+      if (className.startsWith(ASSET_PACK_CLASS_PREFIX)) {
+        document.documentElement.classList.remove(className);
+      }
+    }
+  }
+
+  clearLoadedAssets() {
+    for (const asset of this.assetSprites.values()) {
+      asset.texture.dispose();
+    }
+    this.assetModels.clear();
+    this.assetSprites.clear();
+    this.assetFonts.clear();
+  }
+
+  hitSplatSpriteImage(hit) {
+    const spriteId = hit.kind === "miss"
+      ? HIT_SPLAT_SPRITES.miss
+      : hit.kind === "poison"
+        ? HIT_SPLAT_SPRITES.poison
+        : hit.kind === "burn"
+          ? HIT_SPLAT_SPRITES.burn
+          : HIT_SPLAT_SPRITES.default;
+    return this.assetSprites.get(spriteId)?.texture.image ?? null;
+  }
+
+  setAssetReport(report) {
+    this.assetReport = report;
+    this.canvas.dataset.assetMode = report.mode;
+    this.canvas.dataset.assetMessage = report.message;
+    this.canvas.dataset.assetManifestVersion = report.version ?? "";
+    this.canvas.dataset.assetFonts = String(report.loaded.fonts);
+    this.canvas.dataset.assetSprites = String(report.loaded.sprites);
+    this.canvas.dataset.assetModels = String(report.loaded.models);
+    this.canvas.dataset.assetWarnings = String(report.warnings.length);
+    this.canvas.dataset.assetErrors = String(report.errors.length);
+    if (report.errors.length > 0) {
+      this.canvas.dataset.assetError = report.errors.slice(0, 3).join(" | ");
+    } else {
+      delete this.canvas.dataset.assetError;
+    }
+    window.dispatchEvent(new CustomEvent("osrs-assets-updated"));
+  }
+
+  assetStatusText() {
+    const report = this.assetReport;
+    const counts = `models ${report.loaded.models}, sprites ${report.loaded.sprites}, fonts ${report.loaded.fonts}`;
+    if (report.mode === "local-osrs") {
+      const suffix = report.errors.length > 0 ? ` ${report.errors.length} error(s); check canvas debug data.` : "";
+      return `Local asset pack v${report.version ?? 1}: ${counts}.${suffix}`;
+    }
+    if (report.mode === "loading") {
+      return report.message;
+    }
+    return `${report.message} Loaded: ${counts}.`;
+  }
+
+  textSpriteFontFamily(role = "ui") {
+    const font = this.assetFonts.get(role)
+      ?? this.assetFonts.get("ui")
+      ?? this.assetFonts.get("osrs")
+      ?? null;
+    return font ? `${quoteCssFontFamily(font.family)}, Trebuchet MS, Arial, sans-serif` : "Trebuchet MS, Arial, sans-serif";
   }
 
   refreshStaticOverlays(snapshot, options) {
@@ -698,22 +927,22 @@ class ThreeGameScene {
   }
 
   drawActiveHazards(snapshot, partialTick) {
+    const now = snapshot.tick + partialTick;
+
     for (const hazard of snapshot.hazards) {
       if (hazard.type === "shadowWaves") continue;
-      const progress = (snapshot.tick + partialTick - hazard.startTick) / Math.max(1, hazard.endTick - hazard.startTick);
-      const opacity = Math.max(0.18, 0.5 - progress * 0.2);
-      const material = new THREE.MeshBasicMaterial({
-        color: 0xff3333,
-        transparent: true,
-        opacity,
-        depthWrite: false
-      });
+      const impactTick = hazard.damageTick ?? hazard.endTick;
+      const progress = telegraphProgress(now, hazard.startTick, impactTick);
+      const impact = isImpactFrame(snapshot.tick, impactTick);
+      const colour = telegraphColour(FIRE_TELEGRAPH_PALETTE, progress, impact);
+      const material = makeTelegraphMaterial(colour, impact ? 0.78 : 0.26 + progress * 0.28);
 
       for (const tile of hazard.tiles) {
         const position = this.tileToWorld(tile, 0.15);
         const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.05, 0.92), material);
         mesh.position.set(position.x, position.y, position.z);
         this.dynamicGroup.add(mesh);
+        addTelegraphPulse(this.dynamicGroup, position, colour, now, impact ? 1.2 : 0.9);
       }
     }
   }
@@ -722,18 +951,29 @@ class ThreeGameScene {
     for (const projectile of snapshot.projectiles) {
       if (projectile.type !== "meteor") continue;
       const total = Math.max(1, projectile.impactTick - projectile.startTick);
-      const progress = THREE.MathUtils.clamp((snapshot.tick + partialTick - projectile.startTick) / total, 0, 1);
+      const now = snapshot.tick + partialTick;
+      const progress = THREE.MathUtils.clamp((now - projectile.startTick) / total, 0, 1);
+      const impact = isImpactFrame(snapshot.tick, projectile.impactTick);
+      const colour = telegraphColour(FIRE_TELEGRAPH_PALETTE, progress, impact);
+      const telegraphMaterial = makeTelegraphMaterial(colour, impact ? 0.82 : 0.38 + progress * 0.2);
+      const meteorMaterial = new THREE.MeshStandardMaterial({
+        color: colour,
+        emissive: colour,
+        emissiveIntensity: impact ? 1.25 : 0.45 + progress * 0.55,
+        roughness: 0.42
+      });
 
       for (const tile of projectile.tiles) {
         const floor = this.tileToWorld(tile, 0.17);
         const telegraph = new THREE.Mesh(
           new THREE.CylinderGeometry(0.43, 0.43, 0.04, 20),
-          this.materials.meteorTelegraph
+          telegraphMaterial
         );
         telegraph.position.set(floor.x, floor.y, floor.z);
         this.dynamicGroup.add(telegraph);
+        addTelegraphPulse(this.dynamicGroup, floor, colour, now, impact ? 1.25 : 1);
 
-        const orb = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 8), this.materials.meteor);
+        const orb = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 8), meteorMaterial);
         orb.position.set(floor.x, 3.6 - progress * 3.2, floor.z);
         orb.castShadow = true;
         this.dynamicGroup.add(orb);
@@ -778,12 +1018,31 @@ class ThreeGameScene {
   drawClickMarkers(snapshot, partialTick) {
     for (const marker of snapshot.clickMarkers) {
       const age = snapshot.tick + partialTick - marker.tick;
-      const scale = 0.32 + age * 0.16;
+      const progress = clamp01(age / CLICK_MARKER_LIFETIME_TICKS);
+      if (progress >= 1) continue;
+
+      const alpha = 1 - progress;
+      const scale = 1 + progress * 0.4;
       const position = this.tileToWorld(marker.tile, 0.3);
-      const material = marker.kind === "attack" ? this.materials.attackClick : this.materials.moveClick;
-      const ring = new THREE.LineLoop(squareLineGeometry(scale), material);
-      ring.position.set(position.x, position.y, position.z);
-      this.effectGroup.add(ring);
+      const colour = marker.kind === "attack" ? 0xff1744 : 0xffeb3b;
+      const crossMaterial = new THREE.LineBasicMaterial({
+        color: colour,
+        transparent: true,
+        opacity: alpha,
+        depthTest: false
+      });
+      const ringMaterial = new THREE.LineBasicMaterial({
+        color: colour,
+        transparent: true,
+        opacity: alpha * 0.5,
+        depthTest: false
+      });
+      const group = new THREE.Group();
+      group.position.set(position.x, position.y, position.z);
+      group.scale.setScalar(scale);
+      group.add(new THREE.LineSegments(clickCrossGeometry(0.62), crossMaterial));
+      group.add(new THREE.LineLoop(circleLineGeometry(0.48, 24), ringMaterial));
+      this.effectGroup.add(group);
     }
   }
 
@@ -804,18 +1063,33 @@ class ThreeGameScene {
   }
 
   drawHitSplats(snapshot, partialTick) {
+    const stackCounts = countHitSplatStacks(snapshot.hitSplats);
+    const stackIndexes = new Map();
+
     for (const hit of snapshot.hitSplats) {
       const age = snapshot.tick + partialTick - hit.tick;
-      const alpha = Math.max(0, 1 - age / 5);
+      const progress = clamp01(age / HIT_SPLAT_LIFETIME_TICKS);
+      const alpha = 1 - progress;
       const baseHeight = hit.target === "player" ? 1.6 : 3.2;
-      const position = this.tileToWorld(hit.tile, baseHeight + age * 0.08);
+      const position = this.tileToWorld(hit.tile, baseHeight + easeOutQuad(progress) * 0.55);
+      const stackKey = hitSplatStackKey(hit);
+      const stackIndex = stackIndexes.get(stackKey) ?? 0;
+      const stackCount = stackCounts.get(stackKey) ?? 1;
+      stackIndexes.set(stackKey, stackIndex + 1);
+      position.x += (stackIndex - (stackCount - 1) / 2) * HIT_SPLAT_STACK_OFFSET;
+
       const style = splatStyle(hit);
+      const backgroundImage = this.hitSplatSpriteImage(hit);
       const sprite = makeTextSprite(String(hit.amount), {
         fill: style.fill,
         stroke: style.stroke,
-        background: style.background,
+        background: backgroundImage ? undefined : style.background,
+        backgroundImage,
+        border: backgroundImage ? undefined : style.border,
+        shape: backgroundImage ? "rect" : "diamond",
         fontSize: 34,
-        scale: 0.72,
+        fontFamily: this.textSpriteFontFamily("hitsplat"),
+        scale: 0.78,
         opacity: alpha
       });
       sprite.position.copy(position);
@@ -826,19 +1100,28 @@ class ThreeGameScene {
   drawYamaHpBar(snapshot) {
     if (snapshot.yama.phaseComplete) return;
     const center = rectCenter(this.scenario.yama);
-    const base = this.tileToWorld(center, 4);
-    const width = 2.6;
+    const base = this.tileToWorld(center, 4.2);
+    const width = Math.max(1, this.scenario.yama.size.width);
+    const height = 0.22;
     const ratio = Math.max(0, snapshot.yama.hp / snapshot.yama.maxHp);
 
-    const bg = new THREE.Mesh(new THREE.PlaneGeometry(width, 0.22), this.materials.hpBarBg);
+    const outline = new THREE.Mesh(new THREE.PlaneGeometry(width + 0.12, height + 0.1), this.materials.hpBarOutline);
+    outline.position.set(base.x, base.y, base.z);
+    outline.lookAt(this.camera.position);
+    outline.renderOrder = 20;
+    this.effectGroup.add(outline);
+
+    const bg = new THREE.Mesh(new THREE.PlaneGeometry(width, height), this.materials.hpBarBg);
     bg.position.set(base.x, base.y, base.z);
     bg.lookAt(this.camera.position);
+    bg.renderOrder = 21;
     this.effectGroup.add(bg);
 
     if (ratio > 0) {
-      const fill = new THREE.Mesh(new THREE.PlaneGeometry(width * ratio, 0.18), this.materials.hpBarFill);
+      const fill = new THREE.Mesh(new THREE.PlaneGeometry(width * ratio, height - 0.04), hpBarFillMaterial(this.materials, ratio));
       fill.position.set(base.x - (width * (1 - ratio)) / 2, base.y + 0.01, base.z);
       fill.lookAt(this.camera.position);
+      fill.renderOrder = 22;
       this.effectGroup.add(fill);
     }
   }
@@ -870,25 +1153,41 @@ class ThreeGameScene {
   }
 
   drawShadowWaves(snapshot, partialTick) {
+    const now = snapshot.tick + partialTick;
+
     for (const hazard of snapshot.hazards) {
       if (hazard.type !== "shadowWaves") continue;
+      const progress = telegraphProgress(now, hazard.startTick, hazard.damageTick);
+      const impact = isImpactFrame(snapshot.tick, hazard.damageTick);
+      const colour = telegraphColour(SHADOW_TELEGRAPH_PALETTE, progress, impact);
+      const material = makeTelegraphMaterial(colour, impact ? 0.78 : 0.3 + progress * 0.24);
+
       for (const tile of hazard.tiles) {
         const position = this.tileToWorld(tile, 0.16);
-        const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.04, 0.92), this.materials.shadowTelegraph);
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.04, 0.92), material);
         mesh.position.set(position.x, position.y, position.z);
         this.dynamicGroup.add(mesh);
+        addTelegraphPulse(this.dynamicGroup, position, colour, now, impact ? 1.2 : 0.95);
       }
     }
   }
 
   drawFireballLine(snapshot, partialTick) {
+    const now = snapshot.tick + partialTick;
+
     for (const projectile of snapshot.projectiles) {
       if (projectile.type !== "fireballLine") continue;
+      const progress = telegraphProgress(now, projectile.startTick, projectile.impactTick);
+      const impact = isImpactFrame(snapshot.tick, projectile.impactTick);
+      const colour = telegraphColour(FIRE_TELEGRAPH_PALETTE, progress, impact);
+      const material = makeTelegraphMaterial(colour, impact ? 0.78 : 0.3 + progress * 0.24);
+
       for (const tile of projectile.tiles) {
         const position = this.tileToWorld(tile, 0.18);
-        const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.05, 0.9), this.materials.fireLine);
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.05, 0.9), material);
         mesh.position.set(position.x, position.y, position.z);
         this.dynamicGroup.add(mesh);
+        addTelegraphPulse(this.dynamicGroup, position, colour, now, impact ? 1.2 : 0.95);
       }
     }
   }
@@ -897,7 +1196,13 @@ class ThreeGameScene {
     for (let x = 0; x < this.scenario.arena.width; x += 1) {
       const coord = String.fromCharCode(65 + x);
       const position = this.tileToWorld({ x, y: this.scenario.arena.height - 1 }, 0.18);
-      const sprite = makeTextSprite(coord, { fill: "#f6e983", stroke: "#000000", fontSize: 22, scale: 0.36 });
+      const sprite = makeTextSprite(coord, {
+        fill: "#f6e983",
+        stroke: "#000000",
+        fontSize: 22,
+        fontFamily: this.textSpriteFontFamily("ui"),
+        scale: 0.36
+      });
       sprite.position.set(position.x, 0.34, position.z + 0.62);
       this.staticGroup.add(sprite);
     }
@@ -905,7 +1210,13 @@ class ThreeGameScene {
     for (let y = 0; y < this.scenario.arena.height; y += 1) {
       const coord = String(15 - y);
       const position = this.tileToWorld({ x: 0, y }, 0.18);
-      const sprite = makeTextSprite(coord, { fill: "#f6e983", stroke: "#000000", fontSize: 22, scale: 0.36 });
+      const sprite = makeTextSprite(coord, {
+        fill: "#f6e983",
+        stroke: "#000000",
+        fontSize: 22,
+        fontFamily: this.textSpriteFontFamily("ui"),
+        scale: 0.36
+      });
       sprite.position.set(position.x - 0.62, 0.34, position.z);
       this.staticGroup.add(sprite);
     }
@@ -956,6 +1267,7 @@ class ThreeGameScene {
       effectObjects: this.effectGroup.children.length,
       canvasWidth: this.canvas.width,
       canvasHeight: this.canvas.height,
+      assetReport: this.assetReport,
       pixelSample: this.lastPixelSample ?? null
     };
   }
@@ -1008,8 +1320,11 @@ function createMaterials() {
     flareCharge: new THREE.MeshBasicMaterial({ color: 0xff7a38, transparent: true, opacity: 0.86, depthTest: false }),
     shadowTelegraph: new THREE.MeshBasicMaterial({ color: 0x8a2be2, transparent: true, opacity: 0.42, depthWrite: false }),
     fireLine: new THREE.MeshBasicMaterial({ color: 0xff5a14, transparent: true, opacity: 0.4, depthWrite: false }),
+    hpBarOutline: new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.95, depthTest: false }),
     hpBarBg: new THREE.MeshBasicMaterial({ color: 0x1a1a1a, transparent: true, opacity: 0.82, depthTest: false }),
-    hpBarFill: new THREE.MeshBasicMaterial({ color: 0xd83d3d, transparent: true, opacity: 0.95, depthTest: false })
+    hpBarFillGreen: new THREE.MeshBasicMaterial({ color: 0x22c55e, transparent: true, opacity: 0.95, depthTest: false }),
+    hpBarFillYellow: new THREE.MeshBasicMaterial({ color: 0xfacc15, transparent: true, opacity: 0.95, depthTest: false }),
+    hpBarFillRed: new THREE.MeshBasicMaterial({ color: 0xdc2626, transparent: true, opacity: 0.95, depthTest: false })
   };
 
   Object.values(materials).forEach((material) => {
@@ -1032,19 +1347,55 @@ function makeTextSprite(text, options = {}) {
   const padding = 8;
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
-  context.font = `700 ${fontSize}px Trebuchet MS, Arial, sans-serif`;
-  const width = Math.ceil(context.measureText(text).width + padding * 2);
-  const height = Math.ceil(fontSize + padding * 2);
+  const fontFamily = options.fontFamily ?? "Trebuchet MS, Arial, sans-serif";
+  context.font = `700 ${fontSize}px ${fontFamily}`;
+  const shape = options.shape ?? "rect";
+  const backgroundImage = options.backgroundImage ?? null;
+  let width = Math.ceil(context.measureText(text).width + padding * 2);
+  let height = Math.ceil(fontSize + padding * 2);
+  if (backgroundImage) {
+    width = Math.max(width, options.backgroundWidth ?? backgroundImage.naturalWidth ?? backgroundImage.width ?? width);
+    height = Math.max(height, options.backgroundHeight ?? backgroundImage.naturalHeight ?? backgroundImage.height ?? height);
+  }
+  if (shape === "diamond") {
+    const size = Math.ceil(Math.max(width, height) + padding * 2);
+    width = size;
+    height = size;
+  }
   canvas.width = nextPowerOfTwo(width);
   canvas.height = nextPowerOfTwo(height);
 
-  context.font = `700 ${fontSize}px Trebuchet MS, Arial, sans-serif`;
+  context.font = `700 ${fontSize}px ${fontFamily}`;
   context.textAlign = "center";
   context.textBaseline = "middle";
 
-  if (options.background) {
+  if (backgroundImage) {
+    const imageWidth = options.backgroundWidth ?? backgroundImage.naturalWidth ?? backgroundImage.width;
+    const imageHeight = options.backgroundHeight ?? backgroundImage.naturalHeight ?? backgroundImage.height;
+    context.drawImage(
+      backgroundImage,
+      (canvas.width - imageWidth) / 2,
+      (canvas.height - imageHeight) / 2,
+      imageWidth,
+      imageHeight
+    );
+  } else if (options.background) {
     context.fillStyle = options.background;
-    context.fillRect((canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
+    const left = (canvas.width - width) / 2;
+    const top = (canvas.height - height) / 2;
+    if (shape === "diamond") {
+      drawDiamond(context, canvas.width / 2, canvas.height / 2, width, height, {
+        fill: options.background,
+        border: options.border
+      });
+    } else {
+      context.fillRect(left, top, width, height);
+      if (options.border) {
+        context.lineWidth = 1;
+        context.strokeStyle = options.border;
+        context.strokeRect(left + 0.5, top + 0.5, width - 1, height - 1);
+      }
+    }
   }
 
   context.lineWidth = 5;
@@ -1113,6 +1464,25 @@ function squareLineGeometry(size) {
   ]);
 }
 
+function clickCrossGeometry(size) {
+  const half = size / 2;
+  return new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(-half, 0, -half),
+    new THREE.Vector3(half, 0, half),
+    new THREE.Vector3(-half, 0, half),
+    new THREE.Vector3(half, 0, -half)
+  ]);
+}
+
+function circleLineGeometry(radius, segments) {
+  const points = [];
+  for (let index = 0; index < segments; index += 1) {
+    const angle = (index / segments) * Math.PI * 2;
+    points.push(new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius));
+  }
+  return new THREE.BufferGeometry().setFromPoints(points);
+}
+
 function rectCenter(rect) {
   return {
     x: rect.origin.x + rect.size.width / 2 - 0.5,
@@ -1120,15 +1490,193 @@ function rectCenter(rect) {
   };
 }
 
+function drawDiamond(context, centerX, centerY, width, height, style) {
+  const halfWidth = width / 2 - 1;
+  const halfHeight = height / 2 - 1;
+  context.beginPath();
+  context.moveTo(centerX, centerY - halfHeight);
+  context.lineTo(centerX + halfWidth, centerY);
+  context.lineTo(centerX, centerY + halfHeight);
+  context.lineTo(centerX - halfWidth, centerY);
+  context.closePath();
+  context.fillStyle = style.fill;
+  context.fill();
+  if (style.border) {
+    context.lineWidth = 2;
+    context.strokeStyle = style.border;
+    context.stroke();
+  }
+}
+
+function countHitSplatStacks(hitSplats) {
+  const counts = new Map();
+  for (const hit of hitSplats) {
+    const key = hitSplatStackKey(hit);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function hitSplatStackKey(hit) {
+  return `${hit.tick}:${hit.target}:${hit.tile.x}:${hit.tile.y}`;
+}
+
+function hpBarFillMaterial(materials, ratio) {
+  if (ratio >= 0.5) return materials.hpBarFillGreen;
+  if (ratio >= 0.25) return materials.hpBarFillYellow;
+  return materials.hpBarFillRed;
+}
+
+function createAssetReport(mode, message, options = {}) {
+  return {
+    mode,
+    message,
+    version: options.version ?? "",
+    loaded: {
+      fonts: options.loaded?.fonts ?? 0,
+      sprites: options.loaded?.sprites ?? 0,
+      models: options.loaded?.models ?? 0
+    },
+    warnings: options.warnings ?? [],
+    errors: options.errors ?? []
+  };
+}
+
+function createLoadReport() {
+  return { loaded: 0, warnings: [], errors: [] };
+}
+
+function validateAssetManifest(manifest) {
+  const report = { warnings: [], errors: [] };
+
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    report.errors.push("Manifest must be a JSON object.");
+    return report;
+  }
+
+  if (manifest.version === undefined) {
+    report.warnings.push("Manifest has no version; treating it as v1-compatible.");
+  } else if (Number(manifest.version) > 2) {
+    report.warnings.push(`Manifest version ${manifest.version} is newer than this loader; unknown fields will be ignored.`);
+  }
+
+  validateAssetSection(report, manifest.models, "models", true);
+  validateAssetSection(report, manifest.sprites, "sprites", false);
+  validateAssetSection(report, manifest.fonts, "fonts", false);
+
+  for (const [id, rawConfig] of Object.entries(manifest.models ?? {})) {
+    const config = normalizeAssetConfig(rawConfig);
+    const scale = config.scale ?? manifest.scale;
+    if (scale !== undefined && (!Number.isFinite(Number(scale)) || Number(scale) <= 0)) {
+      report.errors.push(`Model "${id}" has an invalid scale.`);
+    }
+  }
+
+  return report;
+}
+
+function validateAssetSection(report, section, name, required) {
+  if (section === undefined) {
+    if (required) {
+      report.warnings.push(`Manifest has no "${name}" section.`);
+    }
+    return;
+  }
+
+  if (!section || typeof section !== "object" || Array.isArray(section)) {
+    report.errors.push(`Manifest "${name}" section must be an object.`);
+    return;
+  }
+
+  for (const [id, rawConfig] of Object.entries(section)) {
+    const config = normalizeAssetConfig(rawConfig);
+    if (!config.path) {
+      report.warnings.push(`${name.slice(0, -1)} "${id}" has no path.`);
+    }
+  }
+}
+
+function normalizeAssetConfig(config) {
+  if (typeof config === "string") {
+    return { path: config };
+  }
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    return {};
+  }
+  return config;
+}
+
+function quoteCssFontFamily(family) {
+  return `"${String(family).replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
+}
+
+function safeCssIdent(value) {
+  return String(value).replace(/[^a-zA-Z0-9_-]/g, "-");
+}
+
+function telegraphProgress(now, startTick, impactTick) {
+  return clamp01((now - startTick) / Math.max(1, impactTick - startTick));
+}
+
+function isImpactFrame(tick, impactTick) {
+  return tick === impactTick;
+}
+
+function telegraphColour(palette, progress, impact) {
+  if (impact) return new THREE.Color(0xffffff);
+  return new THREE.Color(palette.start).lerp(new THREE.Color(palette.end), progress);
+}
+
+function makeTelegraphMaterial(colour, opacity) {
+  return new THREE.MeshBasicMaterial({
+    color: colour,
+    transparent: true,
+    opacity,
+    depthWrite: false
+  });
+}
+
+function addTelegraphPulse(group, position, colour, now, opacityScale = 1) {
+  const phase = positiveModulo(now, HAZARD_PULSE_PERIOD_TICKS) / HAZARD_PULSE_PERIOD_TICKS;
+  const size = 0.18 + phase * 0.82;
+  const opacity = Math.sin(phase * Math.PI) * 0.72 * opacityScale;
+  if (opacity <= 0.02) return;
+
+  const material = new THREE.LineBasicMaterial({
+    color: colour,
+    transparent: true,
+    opacity,
+    depthTest: false,
+    depthWrite: false
+  });
+  const line = new THREE.LineLoop(squareLineGeometry(size), material);
+  line.position.set(position.x, position.y + 0.04, position.z);
+  line.renderOrder = 10;
+  group.add(line);
+}
+
+function positiveModulo(value, divisor) {
+  return ((value % divisor) + divisor) % divisor;
+}
+
+function clamp01(value) {
+  return Math.min(1, Math.max(0, value));
+}
+
+function easeOutQuad(value) {
+  const clamped = clamp01(value);
+  return 1 - (1 - clamped) * (1 - clamped);
+}
+
 function splatStyle(hit) {
   const kind = hit.kind;
   if (hit.target === "player") {
-    if (kind === "poison") return { fill: "#ffffff", stroke: "#0e6b1c", background: "#062b0c" };
-    if (kind === "burn") return { fill: "#ffffff", stroke: "#d35400", background: "#3a1602" };
-    return { fill: "#ffffff", stroke: "#7a1010", background: "#3a0606" };
+    if (kind === "poison") return { fill: "#ffffff", stroke: "#073b12", background: "#168a2e", border: "#ffffff" };
+    if (kind === "burn") return { fill: "#ffffff", stroke: "#7c2d12", background: "#f97316", border: "#ffffff" };
+    return { fill: "#ffffff", stroke: "#450a0a", background: "#b91c1c", border: "#ffffff" };
   }
-  if (kind === "miss") return { fill: "#cfe4ff", stroke: "#1f3a66", background: "#0a1626" };
-  return { fill: "#ffffff", stroke: "#8b0000", background: "#1a1a1a" };
+  if (kind === "miss") return { fill: "#ffffff", stroke: "#1e3a8a", background: "#2563eb", border: "#ffffff" };
+  return { fill: "#ffffff", stroke: "#450a0a", background: "#b91c1c", border: "#ffffff" };
 }
 
 bootstrap();

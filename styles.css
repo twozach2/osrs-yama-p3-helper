@@ -12,7 +12,11 @@
   --safe: #67e8f9;
   --accent: #a3e635;
   --shadow: rgba(0, 0, 0, 0.72);
-  font-family: "Trebuchet MS", Arial, sans-serif;
+  --ui-font: "Trebuchet MS", Arial, sans-serif;
+  --asset-orb-hp-image: none;
+  --asset-orb-prayer-image: none;
+  --asset-orb-run-image: none;
+  font-family: var(--ui-font);
 }
 
 * {
@@ -187,6 +191,12 @@ h1 {
   line-height: 1.35;
 }
 
+.asset-status {
+  min-height: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .event-log {
   display: grid;
   gap: 6px;
@@ -232,11 +242,34 @@ h1 {
   color: #fff8a6;
   font-weight: 700;
   font-size: 16px;
+  background-position: center 8px;
+  background-repeat: no-repeat;
+  background-size: 28px 28px;
 }
 
 #hud .orb-hp { left: 16px; border-color: var(--danger); }
 #hud .orb-pray { left: 80px; border-color: var(--safe); }
 #hud .orb-run { left: 144px; border-color: var(--accent); }
+
+.asset-sprite-orbHp #hud .orb-hp,
+.asset-sprite-orbPrayer #hud .orb-pray,
+.asset-sprite-orbRun #hud .orb-run {
+  align-items: flex-end;
+  padding-bottom: 7px;
+  font-size: 12px;
+}
+
+.asset-sprite-orbHp #hud .orb-hp {
+  background-image: var(--asset-orb-hp-image);
+}
+
+.asset-sprite-orbPrayer #hud .orb-pray {
+  background-image: var(--asset-orb-prayer-image);
+}
+
+.asset-sprite-orbRun #hud .orb-run {
+  background-image: var(--asset-orb-run-image);
+}
 
 #hudYamaBar {
   position: absolute;

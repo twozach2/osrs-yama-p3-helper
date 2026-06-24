@@ -8,3 +8,8 @@ public/assets/osrs/*.jpg
 public/assets/osrs/*.jpeg
 public/assets/osrs/*.webp
 public/assets/osrs/manifest.json
+public/assets/osrs/manifest.draft.json
+public/assets/osrs/fonts/
+public/assets/osrs/models/
+public/assets/osrs/raw/
+public/assets/osrs/sprites/

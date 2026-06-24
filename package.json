@@ -5,7 +5,14 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node tests/engine.test.mjs"
+    "test": "node tests/engine.test.mjs && node tests/cache-reader.test.mjs && node tests/reference-table.test.mjs && node tests/group-config.test.mjs && node tests/model-glb.test.mjs",
+    "assets:inspect": "node tools/osrs-cache-exporter/export.mjs inspect",
+    "assets:refs": "node tools/osrs-cache-exporter/export.mjs refs",
+    "assets:npc-search": "node tools/osrs-cache-exporter/export.mjs npc-search",
+    "assets:npc": "node tools/osrs-cache-exporter/export.mjs npc",
+    "assets:npc-export-raw": "node tools/osrs-cache-exporter/export.mjs npc-export-raw",
+    "assets:npc-export-glb": "node tools/osrs-cache-exporter/export.mjs npc-export-glb",
+    "assets:export": "node tools/osrs-cache-exporter/export.mjs export"
   },
   "dependencies": {
     "three": "^0.184.0"

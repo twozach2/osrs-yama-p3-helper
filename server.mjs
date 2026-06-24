@@ -47,6 +47,19 @@ const server = createServer(async (request, response) => {
   }
 });
 
+server.on("error", (error) => {
+  if (error.code === "EADDRINUSE") {
+    console.error(`Port ${PORT} is already in use on ${HOST}.`);
+    console.error("Another copy of the practice tool may already be running.");
+    console.error("Stop the other server, or run with a different port:");
+    console.error("  $env:PORT=5174; node server.mjs");
+    process.exitCode = 1;
+    return;
+  }
+
+  throw error;
+});
+
 server.listen(PORT, HOST, () => {
   console.log(`Yama P3 practice tool running at http://${HOST}:${PORT}`);
 });

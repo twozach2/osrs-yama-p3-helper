@@ -1,0 +1,78 @@
+{
+  "name": "Local OSRS Asset Pack",
+  "scale": 0.01,
+  "notes": [
+    "Fill in real cache IDs as we identify them.",
+    "Index 7 is commonly used for model archives and index 8 for sprites in OSRS cache builds.",
+    "rawGroups are useful while building decoders; converted GLB/PNG/WOFF2 files should live under public/assets/osrs."
+  ],
+  "rawGroups": [
+    {
+      "name": "example-model-archive",
+      "index": 7,
+      "archive": 0
+    },
+    {
+      "name": "example-sprite-archive",
+      "index": 8,
+      "archive": 0
+    }
+  ],
+  "models": {
+    "player": {
+      "path": "/assets/osrs/player.glb",
+      "scale": 0.01,
+      "yOffset": 0
+    },
+    "yama": {
+      "path": "/assets/osrs/yama.glb",
+      "scale": 0.01,
+      "yOffset": 0
+    },
+    "meteor": {
+      "path": "/assets/osrs/meteor.glb",
+      "scale": 0.01,
+      "yOffset": 0
+    },
+    "voidFlare": {
+      "path": "/assets/osrs/void-flare.glb",
+      "scale": 0.01,
+      "yOffset": 0
+    }
+  },
+  "sprites": {
+    "orbHp": {
+      "path": "/assets/osrs/sprites/orb-hp.png"
+    },
+    "orbPrayer": {
+      "path": "/assets/osrs/sprites/orb-prayer.png"
+    },
+    "orbRun": {
+      "path": "/assets/osrs/sprites/orb-run.png"
+    },
+    "hitsplatDamage": {
+      "path": "/assets/osrs/sprites/hitsplat-damage.png"
+    },
+    "hitsplatMiss": {
+      "path": "/assets/osrs/sprites/hitsplat-miss.png"
+    },
+    "hitsplatPoison": {
+      "path": "/assets/osrs/sprites/hitsplat-poison.png"
+    },
+    "hitsplatBurn": {
+      "path": "/assets/osrs/sprites/hitsplat-burn.png"
+    }
+  },
+  "fonts": {
+    "ui": {
+      "path": "/assets/osrs/fonts/RuneScape-UF.woff2",
+      "family": "Local OSRS UI",
+      "role": "ui"
+    },
+    "hitsplat": {
+      "path": "/assets/osrs/fonts/RuneScape-Plain-12.woff2",
+      "family": "Local OSRS Hitsplat",
+      "role": "hitsplat"
+    }
+  }
+}

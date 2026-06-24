@@ -88,6 +88,11 @@
         </div>
       </section>
 
+      <section aria-label="Local asset pack">
+        <p class="section-title">Assets</p>
+        <p id="assetStatus" class="status-line asset-status">Using fallback primitives. Add a local asset pack to enable OSRS assets.</p>
+      </section>
+
       <section aria-label="Current status">
         <p class="section-title">Status</p>
         <p id="status" class="status-line">Ready. Click a tile to queue movement.</p>
@@ -104,6 +109,25 @@
       </p>
     </aside>
 
+    <script>
+      window.addEventListener("error", (event) => {
+        const status = document.querySelector("#status");
+        if (status) status.textContent = `App error: ${event.message}`;
+      });
+      window.addEventListener("unhandledrejection", (event) => {
+        const status = document.querySelector("#status");
+        const reason = event.reason?.message ?? String(event.reason);
+        if (status) status.textContent = `App error: ${reason}`;
+      });
+    </script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./node_modules/three/build/three.module.js",
+          "three/addons/": "./node_modules/three/examples/jsm/"
+        }
+      }
+    </script>
     <script type="module" src="./src/main.js"></script>
   </body>
 </html>

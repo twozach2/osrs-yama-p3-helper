@@ -15,6 +15,12 @@ node server.mjs
 
 Then open `http://localhost:5173`.
 
+If port `5173` is already in use, either close the other running server or start this one on a different port:
+
+```powershell
+$env:PORT=5174; node server.mjs
+```
+
 You can sanity-check the simulation core with:
 
 ```powershell
@@ -46,7 +52,51 @@ The sim is now reactive: Yama responds to your position and state, and damage is
 
 ## Real OSRS Models
 
-The app supports local user-provided `.glb` / `.gltf` models through `public/assets/osrs/manifest.json`. See `docs/osrs-asset-pipeline.md` for the conversion and drop-in workflow. Jagex-owned cache assets are intentionally ignored by Git and should not be redistributed from this repo.
+The app supports local user-provided OSRS asset packs through `public/assets/osrs/manifest.json`: `.glb` / `.gltf` models, transparent sprite images, and WOFF2 fonts. See `docs/osrs-asset-pipeline.md` for the conversion and drop-in workflow. Jagex-owned cache assets are intentionally ignored by Git and should not be redistributed from this repo.
+
+To inspect a local RuneLite cache:
+
+```powershell
+npm.cmd run assets:inspect -- --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --sample 3
+```
+
+To read cache reference-table metadata:
+
+```powershell
+npm.cmd install --no-save seek-bzip
+npm.cmd run assets:refs -- --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --index 7 --limit 25
+```
+
+To search the local cache for Yama NPC definitions:
+
+```powershell
+npm.cmd run assets:npc-search -- --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --name yama --json
+```
+
+Current local-cache Yama target:
+
+- NPC `15700`: `Yama`, size `5`, combat `1524`, models `10468`, `10338`, `10340`, idle `12140`, walk `12141`.
+- Other combat Yama candidates found: `14176` and `15555`, using the same model and base idle/walk animations.
+
+To export the raw Yama model archives locally:
+
+```powershell
+npm.cmd run assets:npc-export-raw -- --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --id 15700
+```
+
+To generate and activate a local Yama GLB:
+
+```powershell
+npm.cmd run assets:npc-export-glb -- --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE" --id 15700 --activate
+```
+
+To run the current draft exporter:
+
+```powershell
+npm.cmd run assets:export -- --cache "C:\Users\zacht\.runelite\jagexcache\oldschool\LIVE"
+```
+
+The exporter currently reads raw JS5 cache groups, decodes JS5 reference tables, searches NPC configs, and converts current type-3 OSRS model archives into local GLB files. It does not yet decode sequence/frame animations or sprite archives into PNG; those are the next layers.
 
 Current controls:
 
