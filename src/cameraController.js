@@ -44,7 +44,6 @@ export class CameraController {
     this._cursorClient = null;
     this._canvasWidth = 0;
     this._canvasHeight = 0;
-    this._panelInsetRight = 0;
   }
 
   setFixedMode(value) {
@@ -66,8 +65,14 @@ export class CameraController {
     if (this.renderer && typeof this.renderer.setSize === "function") {
       this.renderer.setSize(dims.width, dims.height, dims.updateStyle);
     }
+    // The canvas is sized to the visible area in CSS (resizable mode has
+    // `right: 292px` so the canvas does not extend behind the panel), so
+    // any leftover view offset from a previous configuration must be
+    // cleared. The camera's projection is then driven purely by `aspect`.
+    if (typeof this.camera.clearViewOffset === "function") {
+      this.camera.clearViewOffset();
+    }
     this.applyAspect(dims.aspect);
-    this.applyViewOffset();
   }
 
   computeViewport() {
@@ -84,7 +89,6 @@ export class CameraController {
       const fitH = fitW / FIXED_MODE_ASPECT;
       this._canvasWidth = Math.floor(fitW);
       this._canvasHeight = Math.floor(fitH);
-      this._panelInsetRight = 0;
       return {
         width: this._canvasWidth,
         height: this._canvasHeight,
@@ -93,43 +97,18 @@ export class CameraController {
       };
     }
 
-    // Resizable: canvas fills the full window width; the side panel sits on
-    // top of the right edge. Camera aspect matches the canvas (not the
-    // visible area) so the rendered image is not stretched horizontally.
-    // applyPose() then shifts the lookAt target so the anchor (player)
-    // lands at the visible center instead of the canvas center.
-    this._canvasWidth = winWidth;
+    // Resizable: the canvas is sized to the visible area by CSS
+    // (`#world { right: 292px }` on the default selector). Drawing buffer
+    // and camera aspect both follow the canvas, so the camera's principal
+    // point IS the visible centre with no projection offset trickery.
+    this._canvasWidth = availableWidth;
     this._canvasHeight = availableHeight;
-    this._panelInsetRight = panelWidth;
     return {
-      width: winWidth,
+      width: availableWidth,
       height: availableHeight,
-      aspect: winWidth / Math.max(1, availableHeight),
+      aspect: availableWidth / Math.max(1, availableHeight),
       updateStyle: false
     };
-  }
-
-  applyViewOffset() {
-    if (typeof this.camera.clearViewOffset !== "function") return;
-    if (this.fixedMode || !this._panelInsetRight || !this._canvasWidth || !this._canvasHeight) {
-      this.camera.clearViewOffset();
-      return;
-    }
-    // Render the actual canvas as a sub-region of a conceptual frame that is
-    // `_panelInsetRight` pixels wider than the canvas, with the sub-region
-    // starting at x = `_panelInsetRight`. The camera's principal point sits
-    // at the centre of the conceptual frame, which then falls at the centre
-    // of the *visible* portion of the canvas (everything left of the side
-    // panel), rather than the panel-occluded canvas centre.
-    const fullWidth = this._canvasWidth + this._panelInsetRight;
-    this.camera.setViewOffset(
-      fullWidth,
-      this._canvasHeight,
-      this._panelInsetRight,
-      0,
-      this._canvasWidth,
-      this._canvasHeight
-    );
   }
 
   applyAspect(aspect) {

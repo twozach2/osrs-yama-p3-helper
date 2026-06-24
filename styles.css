@@ -71,6 +71,7 @@ code {
 #world {
   position: fixed;
   inset: 0;
+  right: 292px;
   display: block;
   image-rendering: pixelated;
   touch-action: none;

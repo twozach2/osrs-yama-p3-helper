@@ -200,33 +200,34 @@ panCtrl.lookAt({ x: 99, y: 0, z: 0 });
 assert.equal(panCtrl.target.x, 99, "lookAt updates the anchor");
 assert.equal(panCtrl.targetOffset.x, offsetBeforeAnchorChange, "lookAt does not clear the pan offset");
 
-// Side-panel view-offset (resizable mode, panel docked right)
-const offsetCtrl = new CameraController({ canvas: createStubCanvas(1280, 720), renderer: createStubRenderer() });
-assert.equal(offsetCtrl.camera.view, null, "view offset is not set before resize()");
+// Resizable mode sizes the canvas to the visible area (CSS owns layout via
+// `#world { right: 292px }`), so the camera renders to a canvas that does
+// NOT extend behind the side panel. No view offset is needed.
+const sizingRenderer = createStubRenderer();
+const sizingCtrl = new CameraController({ canvas: createStubCanvas(1280, 720), renderer: sizingRenderer });
+sizingCtrl.resize();
+const lastSize = sizingRenderer.calls.filter((c) => c.kind === "setSize").at(-1);
+assert.ok(lastSize, "resize() invokes renderer.setSize");
+assert.ok(lastSize.width < 1280,
+  `drawing buffer width is the visible area, not the full window (got ${lastSize.width})`);
+assert.equal(lastSize.width, 1280 - CAMERA_DEFAULTS.panelWidthPx,
+  "drawing buffer width is winWidth - panelWidth in resizable mode");
+assert.equal(lastSize.updateStyle, false, "CSS owns the canvas style in resizable mode");
+assert.equal(sizingCtrl.camera.view?.enabled ?? false, false,
+  "no projection view offset is needed when the canvas is sized to the visible area");
+const expectedAspect = (1280 - CAMERA_DEFAULTS.panelWidthPx) / 720;
+assert.ok(Math.abs(sizingCtrl.camera.aspect - expectedAspect) < 1e-9,
+  `camera aspect matches the visible area aspect (expected ${expectedAspect}, got ${sizingCtrl.camera.aspect})`);
 
-offsetCtrl.resize();
-assert.ok(offsetCtrl.camera.view && offsetCtrl.camera.view.enabled,
-  "resize() in resizable mode enables the perspective view offset");
-const view = offsetCtrl.camera.view;
-assert.equal(view.fullWidth, offsetCtrl._canvasWidth + CAMERA_DEFAULTS.panelWidthPx,
-  "fullWidth widens by exactly the panel inset so the camera principal point falls at the visible centre");
-assert.equal(view.offsetX, CAMERA_DEFAULTS.panelWidthPx,
-  "render sub-region starts one panel-width into the conceptual frame");
-assert.equal(view.width, offsetCtrl._canvasWidth);
-assert.equal(view.height, offsetCtrl._canvasHeight);
+// lookAt should put the anchor at the camera's own column at yaw 0.
+sizingCtrl.lookAt({ x: 7, y: 0, z: 0 });
+assert.ok(Math.abs(sizingCtrl.camera.position.x - 7) < 1e-9,
+  `camera column tracks the anchor's x exactly at yaw 0 (got ${sizingCtrl.camera.position.x})`);
 
-// At yaw 0, lookAt should NOT move the camera off the player's column any more:
-// the panel compensation is in the projection, not the world position.
-offsetCtrl.lookAt({ x: 7, y: 0, z: 0 });
-assert.ok(Math.abs(offsetCtrl.camera.position.x - 7) < 1e-9,
-  `camera column tracks the anchor's x exactly at yaw 0 (got ${offsetCtrl.camera.position.x})`);
-
-offsetCtrl.setFixedMode(true);
-assert.equal(offsetCtrl.camera.view?.enabled ?? false, false,
-  "fixed-mode clears the view offset");
-offsetCtrl.setFixedMode(false);
-assert.ok(offsetCtrl.camera.view && offsetCtrl.camera.view.enabled,
-  "leaving fixed-mode re-enables the view offset");
+sizingCtrl.setFixedMode(true);
+assert.equal(sizingCtrl.camera.view?.enabled ?? false, false, "fixed-mode keeps view offset off");
+sizingCtrl.setFixedMode(false);
+assert.equal(sizingCtrl.camera.view?.enabled ?? false, false, "leaving fixed-mode keeps view offset off");
 
 console.log("cameraController tests passed");
 
