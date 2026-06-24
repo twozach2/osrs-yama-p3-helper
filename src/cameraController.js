@@ -8,6 +8,10 @@ const MIN_DISTANCE = 6;
 const MAX_DISTANCE = 28;
 const DEFAULT_YAW = 0;
 const DEFAULT_PITCH = (55 * Math.PI) / 180;
+const MIN_PITCH = (15 * Math.PI) / 180;
+const MAX_PITCH = (80 * Math.PI) / 180;
+const YAW_PER_PX = (0.5 * Math.PI) / 180;
+const PITCH_PER_PX = (0.35 * Math.PI) / 180;
 const NEAR = 0.1;
 const FAR = 100;
 
@@ -55,6 +59,71 @@ export class CameraController {
     this.applyPose();
   }
 
+  applyDragDelta(dxPx, dyPx) {
+    this.yaw += dxPx * YAW_PER_PX;
+    const nextPitch = this.pitch + dyPx * PITCH_PER_PX;
+    this.pitch = Math.min(MAX_PITCH, Math.max(MIN_PITCH, nextPitch));
+    this.applyPose();
+  }
+
+  attach(canvasOverride) {
+    const target = canvasOverride ?? this.canvas;
+    if (!target || typeof target.addEventListener !== "function") {
+      return () => {};
+    }
+    this.detach();
+
+    let dragging = false;
+    let activePointer = null;
+    let lastX = 0;
+    let lastY = 0;
+
+    const onPointerDown = (event) => {
+      if (event.button !== 1) return;
+      dragging = true;
+      activePointer = event.pointerId;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      try { target.setPointerCapture?.(event.pointerId); } catch { /* not supported */ }
+      event.preventDefault();
+    };
+    const onPointerMove = (event) => {
+      if (!dragging || event.pointerId !== activePointer) return;
+      const dx = event.clientX - lastX;
+      const dy = event.clientY - lastY;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      this.applyDragDelta(dx, dy);
+      event.preventDefault();
+    };
+    const onPointerEnd = (event) => {
+      if (!dragging || event.pointerId !== activePointer) return;
+      dragging = false;
+      activePointer = null;
+      try { target.releasePointerCapture?.(event.pointerId); } catch { /* not supported */ }
+    };
+
+    target.addEventListener("pointerdown", onPointerDown);
+    target.addEventListener("pointermove", onPointerMove);
+    target.addEventListener("pointerup", onPointerEnd);
+    target.addEventListener("pointercancel", onPointerEnd);
+    target.addEventListener("lostpointercapture", onPointerEnd);
+
+    this._detach = () => {
+      target.removeEventListener("pointerdown", onPointerDown);
+      target.removeEventListener("pointermove", onPointerMove);
+      target.removeEventListener("pointerup", onPointerEnd);
+      target.removeEventListener("pointercancel", onPointerEnd);
+      target.removeEventListener("lostpointercapture", onPointerEnd);
+      this._detach = null;
+    };
+    return this._detach;
+  }
+
+  detach() {
+    this._detach?.();
+  }
+
   lookAt(target) {
     if (!target) return;
     this.target.set(target.x ?? 0, target.y ?? 0, target.z ?? 0);
@@ -100,6 +169,10 @@ export const CAMERA_DEFAULTS = Object.freeze({
   maxDistance: MAX_DISTANCE,
   defaultYaw: DEFAULT_YAW,
   defaultPitch: DEFAULT_PITCH,
+  minPitch: MIN_PITCH,
+  maxPitch: MAX_PITCH,
+  yawPerPx: YAW_PER_PX,
+  pitchPerPx: PITCH_PER_PX,
   panelBreakpointPx: PANEL_BREAKPOINT_PX,
   panelWidthPx: PANEL_WIDTH_PX
 });

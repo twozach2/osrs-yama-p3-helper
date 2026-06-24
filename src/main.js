@@ -135,6 +135,7 @@ function init() {
   }
 
   canvas.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
     const tile = gameScene.pickTile(event.clientX, event.clientY);
     if (!tile || (!isWalkable(tile, YAMA_P3_SCENARIO.arena) && !engine.isYamaTile(tile))) {
       return;
@@ -143,6 +144,8 @@ function init() {
     engine.clickTile(tile);
     updateHud();
   });
+
+  gameScene.cameraController.attach(canvas);
 
   window.addEventListener("resize", () => gameScene.resize());
   window.addEventListener("keydown", handleKeydown);

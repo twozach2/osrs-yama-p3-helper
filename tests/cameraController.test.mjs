@@ -49,6 +49,51 @@ assert.ok(left.x < right.x, "left pixel maps to smaller world x than right pixel
 const noCanvas = new CameraController({ canvas: null, renderer: createStubRenderer() });
 assert.equal(noCanvas.pickGround(10, 10), null, "pickGround returns null without a canvas");
 
+// V2.2 drag math
+const dragCtrl = new CameraController({ canvas: createStubCanvas(800, 600), renderer: createStubRenderer() });
+const baseYaw = dragCtrl.yaw;
+const basePitch = dragCtrl.pitch;
+dragCtrl.applyDragDelta(100, 0);
+assert.ok(Math.abs(dragCtrl.yaw - (baseYaw + 100 * CAMERA_DEFAULTS.yawPerPx)) < 1e-9,
+  "applyDragDelta(100, 0) advances yaw by 100 * yawPerPx");
+assert.equal(dragCtrl.pitch, basePitch, "horizontal drag does not change pitch");
+
+dragCtrl.applyDragDelta(0, 10);
+assert.ok(Math.abs(dragCtrl.pitch - (basePitch + 10 * CAMERA_DEFAULTS.pitchPerPx)) < 1e-9,
+  "applyDragDelta(0, 10) advances pitch by 10 * pitchPerPx");
+
+dragCtrl.applyDragDelta(0, 10000);
+assert.equal(dragCtrl.pitch, CAMERA_DEFAULTS.maxPitch, "pitch clamps at maxPitch on huge downward drag");
+dragCtrl.applyDragDelta(0, -10000);
+assert.equal(dragCtrl.pitch, CAMERA_DEFAULTS.minPitch, "pitch clamps at minPitch on huge upward drag");
+
+// V2.2 attach()
+const stubCanvas = createStubEventCanvas(800, 600);
+const detach = dragCtrl.attach(stubCanvas);
+assert.equal(typeof detach, "function", "attach returns a detach function");
+assert.ok(stubCanvas.listeners.has("pointerdown"), "attach registers pointerdown");
+assert.ok(stubCanvas.listeners.has("pointermove"), "attach registers pointermove");
+assert.ok(stubCanvas.listeners.has("pointerup"), "attach registers pointerup");
+
+const yawBeforeMiddle = dragCtrl.yaw;
+const pitchBeforeMiddle = dragCtrl.pitch;
+stubCanvas.dispatch("pointerdown", { button: 0, pointerId: 1, clientX: 10, clientY: 10 });
+stubCanvas.dispatch("pointermove", { button: -1, pointerId: 1, clientX: 110, clientY: 10 });
+assert.equal(dragCtrl.yaw, yawBeforeMiddle, "left-button drag does not rotate the camera");
+assert.equal(dragCtrl.pitch, pitchBeforeMiddle, "left-button drag does not adjust pitch");
+
+stubCanvas.dispatch("pointerdown", { button: 1, pointerId: 2, clientX: 10, clientY: 10 });
+stubCanvas.dispatch("pointermove", { button: -1, pointerId: 2, clientX: 110, clientY: 10 });
+assert.ok(Math.abs(dragCtrl.yaw - (yawBeforeMiddle + 100 * CAMERA_DEFAULTS.yawPerPx)) < 1e-9,
+  "middle-button drag rotates yaw by dx * yawPerPx");
+stubCanvas.dispatch("pointerup", { pointerId: 2 });
+stubCanvas.dispatch("pointermove", { button: -1, pointerId: 2, clientX: 210, clientY: 10 });
+assert.ok(Math.abs(dragCtrl.yaw - (yawBeforeMiddle + 100 * CAMERA_DEFAULTS.yawPerPx)) < 1e-9,
+  "pointer release stops drag tracking");
+
+detach();
+assert.equal(stubCanvas.listeners.get("pointerdown").size, 0, "detach removes the pointerdown listener");
+
 console.log("cameraController tests passed");
 
 function createStubRenderer() {
@@ -65,6 +110,29 @@ function createStubCanvas(width, height) {
   return {
     getBoundingClientRect() {
       return { left: 0, top: 0, width, height, right: width, bottom: height };
+    }
+  };
+}
+
+function createStubEventCanvas(width, height) {
+  const listeners = new Map();
+  return {
+    listeners,
+    getBoundingClientRect() {
+      return { left: 0, top: 0, width, height, right: width, bottom: height };
+    },
+    addEventListener(type, listener) {
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type).add(listener);
+    },
+    removeEventListener(type, listener) {
+      listeners.get(type)?.delete(listener);
+    },
+    setPointerCapture() {},
+    releasePointerCapture() {},
+    dispatch(type, init) {
+      const event = { type, preventDefault() {}, ...init };
+      for (const listener of listeners.get(type) ?? []) listener(event);
     }
   };
 }
