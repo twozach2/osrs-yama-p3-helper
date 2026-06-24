@@ -42,6 +42,9 @@ export class CameraController {
     this.floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
     this._cursorClient = null;
+    this._canvasWidth = 0;
+    this._canvasHeight = 0;
+    this._panelInsetRight = 0;
   }
 
   setFixedMode(value) {
@@ -78,20 +81,38 @@ export class CameraController {
       const widthByHeight = availableHeight * FIXED_MODE_ASPECT;
       const fitW = Math.min(availableWidth, widthByHeight);
       const fitH = fitW / FIXED_MODE_ASPECT;
+      this._canvasWidth = Math.floor(fitW);
+      this._canvasHeight = Math.floor(fitH);
+      this._panelInsetRight = 0;
       return {
-        width: Math.floor(fitW),
-        height: Math.floor(fitH),
+        width: this._canvasWidth,
+        height: this._canvasHeight,
         aspect: FIXED_MODE_ASPECT,
         updateStyle: true
       };
     }
 
+    // Resizable: canvas fills the full window width; the side panel sits on
+    // top of the right edge. Camera aspect matches the canvas (not the
+    // visible area) so the rendered image is not stretched horizontally.
+    // applyPose() then shifts the lookAt target so the anchor (player)
+    // lands at the visible center instead of the canvas center.
+    this._canvasWidth = winWidth;
+    this._canvasHeight = availableHeight;
+    this._panelInsetRight = panelWidth;
     return {
       width: winWidth,
       height: availableHeight,
-      aspect: availableWidth / Math.max(1, availableHeight),
+      aspect: winWidth / Math.max(1, availableHeight),
       updateStyle: false
     };
+  }
+
+  computeViewShift() {
+    if (this.fixedMode) return 0;
+    if (!this._panelInsetRight || !this._canvasHeight) return 0;
+    const fovV = (this.camera.fov * Math.PI) / 180;
+    return (this._panelInsetRight * this.distance * Math.tan(fovV / 2)) / this._canvasHeight;
   }
 
   applyAspect(aspect) {
@@ -201,14 +222,24 @@ export class CameraController {
     const fx = this.target.x + this.targetOffset.x;
     const fy = this.target.y + this.targetOffset.y;
     const fz = this.target.z + this.targetOffset.z;
+
+    // Side-panel compensation: shift the lookAt point (and the camera with
+    // it) sideways in the camera's local +X direction so the anchor falls
+    // at the visible center of the canvas rather than the panel-occluded
+    // canvas center. computeViewShift returns 0 in fixed-mode and when the
+    // panel is stacked below the canvas.
+    const shift = this.computeViewShift();
+    const sfx = fx + shift * Math.cos(this.yaw);
+    const sfz = fz - shift * Math.sin(this.yaw);
+
     const horizontal = Math.cos(this.pitch) * this.distance;
     const vertical = Math.sin(this.pitch) * this.distance;
     this.camera.position.set(
-      fx + Math.sin(this.yaw) * horizontal,
+      sfx + Math.sin(this.yaw) * horizontal,
       fy + vertical,
-      fz + Math.cos(this.yaw) * horizontal
+      sfz + Math.cos(this.yaw) * horizontal
     );
-    this.camera.lookAt(fx, fy, fz);
+    this.camera.lookAt(sfx, fy, sfz);
   }
 
   tick(dtSec) {
