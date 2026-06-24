@@ -1,6 +1,6 @@
-# OSRS Visual Parity Plan — V1 + V2 + V3
+# OSRS Visual Parity Plan — V1 + V2 + V3 + V4
 
-> Goal: make the practice tool *feel* like Old School RuneScape **without** importing any Jagex-owned assets. Three sequential phases — HUD & overlays, camera & input parity, then a visual style pass — each landable as its own commit.
+> Goal: make the practice tool *feel* like Old School RuneScape **without** importing any Jagex-owned assets. Four sequential phases — HUD & overlays, camera & input parity, visual style pass, then liveness (motion & sound) — each landable as its own commit.
 
 ## Scope
 
@@ -9,13 +9,14 @@
 | **V1** | OSRS-style HUD & overlays | `src/main.js` (overlay draw methods), `index.html` (`#hud`), `styles.css` |
 | **V2** | Camera & input parity | `src/main.js` (`ThreeGameScene` camera + input), new `src/cameraController.js` |
 | **V3** | Visual style pass | `styles.css`, `createMaterials()` in `src/main.js`, optional `src/postFx.js` |
+| **V4** | Liveness (motion & sound) | `tools/osrs-cache-exporter/`, `src/assetPack.js`, `src/main.js` (per-frame procedural motion), new `src/audio.js`, new `src/animation.js` |
 
 ## Explicitly Out Of Scope
 
-- Importing or shipping Jagex models / textures / animations (covered by `docs/osrs-asset-pipeline.md` — that's V4/V5, not this plan).
-- Wiring animation clips to ticks.
-- Any backend / server work.
+- Importing or shipping Jagex models / textures / animations / sound effects. The exporter and runtime additions in V4 must continue to read **only** from a user-supplied local cache, the same posture V1–V3 took for models and sprites (`docs/osrs-asset-pipeline.md`).
+- Networked multiplayer, login/account state, server-side simulation.
 - Method-pack content changes.
+- A full effects/particle system — V4 stays at the level of clip playback + procedural sway + screen-shake. Particle-based VFX (fire embers, void wisps, hit-flash) are a possible V5.
 
 ## Ground Rules
 
@@ -250,6 +251,92 @@ Pure aesthetics — no new behaviour. Each sub-step independent; ordering is by 
 
 ---
 
+## V4 — Liveness (Motion & Sound)
+
+Where V1–V3 made the *picture* look like OSRS, V4 makes the *world* behave like OSRS. Two halves: animated assets driven by the exporter and runtime mixer, and procedural motion/sound that works even with no local asset pack present.
+
+Every sub-step must remain **primitive-safe** (look right with the fallback procedural Yama/player) and **tick-anchored** (motion that pauses with the engine, not wall-clock).
+
+### V4.1 — Exporter sequence/frame decoder
+
+**Where**: `tools/osrs-cache-exporter/` (new `decodeSequence.mjs`, `decodeFrame.mjs`; wired into the existing model emit path).
+
+**Target**:
+- Read the cache's `Sequence` archive (skeletal animation metadata: frame list, frame duration in client ticks, loop start, replay style) and the `Frame` / `Framemap` archives (per-bone transforms).
+- For each model the exporter emits, walk its associated sequence IDs (from the NPC / object definition) and pack each clip into the GLB's `animations` array as a `THREE.AnimationClip`-compatible track set. Bone naming convention: skin index from Framemap → `bone_<index>`.
+- Frame duration uses 600ms / tick to match the OSRS tick (already the project-wide unit).
+- New unit test: a synthetic 2-frame sequence round-trips through encode → GLB → `THREE.GLTFLoader` and produces an `AnimationClip` with the expected duration and track count.
+
+**Done when**: a user-exported Yama GLB contains at least one `AnimationClip` (idle), confirmed by inspecting the loaded asset in the browser console.
+
+### V4.2 — Animation playback (Yama)
+
+**Where**: `src/assetPack.js` (load `gltf.animations`, store on the asset record), new `src/animation.js` (small wrapper around `THREE.AnimationMixer`), `src/main.js` (per-frame mixer.update).
+
+**Target**:
+- When a GLB with `animations` loads via the asset pack, instantiate a `THREE.AnimationMixer` on the cloned scene and store the available clips by name.
+- Default behaviour: play the clip named (in priority order) `idle`, `stand`, or clip index 0 on a loop.
+- New manifest field `animations: { yama: { idle: "<clipName>", attack: "...", hit: "...", death: "..." } }` lets the manifest remap exporter clip names to engine-event roles.
+- Engine events (`yama_attack_tick`, `yama_hit`, `yama_death`) trigger a one-shot crossfade to the matching role clip, then return to idle.
+- Mixer is advanced from `partialTick` seconds so animation playback rate scales with the speed slider.
+
+**Done when**: with a local pack containing an idle clip, the Yama visibly moves while paused (idle loop runs) and switches to attack clip on attack tick.
+
+### V4.3 — Animation playback (player)
+
+**Where**: same modules as V4.2, plus a movement-state probe reading `snapshot.player.movement` / queued path.
+
+**Target**:
+- Same mixer wiring for the player asset.
+- Movement state machine derives current clip from existing engine state — no new engine state:
+  - `idle` when the player hasn't moved in N ticks and has no queued path,
+  - `walk` when queued path length ≤ 1 or run is off,
+  - `run` when run is on and the player is moving > 1 tile / tick,
+  - `attack` on the engine's attack tick,
+  - `death` on player HP = 0.
+- Clip role names mirror V4.2's manifest pattern under `animations.player`.
+
+**Done when**: with a local pack, the player visibly walks while pathing, runs faster with run on, and stays in idle when stopped.
+
+### V4.4 — Procedural Yama sway & head-tracking (fallback)
+
+**Where**: `src/main.js` `buildYama()` (capture head sub-group reference), per-frame update in `render()`.
+
+**Target**:
+- Even with no animation pack, the procedural Yama gets two subtle motions:
+  - **Head-track**: head sub-group's Y rotation lerps toward `atan2(playerZ - yamaZ, playerX - yamaX)` with a slowish constant (e.g. 4 rad/sec cap).
+  - **Idle sway**: body Y position bobs by ±0.04 units on a 4-tick sine wave; whole-group Y rotation drifts ±2° on a 16-tick wave.
+- Both driven by `snapshot.tick + partialTick`, so paused engine = paused motion.
+- Sway/track is **skipped** when an animation pack is active (the clip drives motion instead) — flag stored on the Yama group.
+
+**Done when**: with no pack, the primitive Yama no longer reads as a statue when the sim is running, and visibly faces the player as the player moves around the arena.
+
+### V4.5 — Audio asset-pack slot
+
+**Where**: new `src/audio.js` (tiny wrapper around `AudioContext`-based one-shot playback), `src/assetPack.js` (new `loadAssetSounds()` mirroring `loadAssetFonts()`), `src/main.js` (engine-event → sound-id dispatch), `index.html` (Mute toggle).
+
+**Target**:
+- No bundled audio. Manifest gains a `sounds: { <id>: { path: "/assets/osrs/sounds/<file>" } }` slot. Same IP-safe posture as V3.3 fonts: bundled defaults are silent; a local pack can supply OGG/WAV files the user is licensed to use.
+- Engine events map to sound IDs by table: `attack_swing`, `yama_hit`, `player_hit`, `void_flare`, `meteor_impact`, `prayer_switch`, `tick_drum` (optional, off by default).
+- Playback through a single shared `AudioContext`; sounds decoded once at load, replayed via `BufferSource` per event. Per-sound gain configurable in the manifest (`{ path, volume }`).
+- UI: `<label><input id="muteAudio" type="checkbox"> Mute</label>` in the toggle-grid. Persisted to `localStorage`.
+
+**Done when**: with a local sound pack present, swings/hits/flares produce audio; without a pack, the toggle is still present but the practice tool stays silent and logs no errors. No audio file is shipped in the repo.
+
+### V4.6 — Camera tweens & impact shake
+
+**Where**: `src/cameraController.js` (new `applyImpulse(magnitude, durationTicks)`), `src/main.js` (engine-event hook).
+
+**Target**:
+- The current snap-to-player target update is instantaneous; add an optional eased follow (`lookAt` target lerps toward the snapshot anchor with a configurable half-life, default 3 ticks). Configurable so existing tile-tight snap remains the default for muscle-memory.
+- `applyImpulse(magnitude, durationTicks)` perturbs the camera target by a damped sine over the given tick window. Driven by `partialTick`, so pause = freeze, slow speed = slow shake. Magnitude scaled in world units (e.g. 0.05 for routine hit, 0.18 for void flare).
+- Engine event hook fires `applyImpulse` on: player damage > 0, Yama special detonation, meteor impact tick.
+- New unit test: feeding a fixed tick-stream into `applyImpulse` produces the expected target offset envelope (decaying sine, integral ≈ 0).
+
+**Done when**: hits feel weighty, the camera doesn't teleport between distant ticks, and there's a test asserting impulse decay so it can't quietly become a permanent jitter.
+
+---
+
 ## Sequencing & Verification
 
 Recommended order (most visual impact per commit, lowest risk first):
@@ -257,15 +344,18 @@ Recommended order (most visual impact per commit, lowest risk first):
 1. V1.1 Hitsplats → V1.2 HP bar → V1.4 Click markers → V1.5 AOE polish → V1.3 Orb icons → V1.6 Tile markers
 2. V2.0 Extract → V2.1 Angle → V2.2 Rotate → V2.3 Zoom → V2.5 Modes → V2.4 Edge-pan
 3. V3.1 Floor → V3.2 Panel → V3.3 Type → V3.4 Pixelation
+4. V4.4 Procedural sway → V4.6 Camera shake → V4.5 Audio slot → V4.1 Exporter clips → V4.2 Yama playback → V4.3 Player playback
+
+V4 ordering inverts the usual "infrastructure first" rule because the procedural / shake / audio pieces (V4.4–V4.5) ship visible impact with zero dependency on the exporter, and the exporter (V4.1) is the largest single piece of work in the phase — risk-isolating it last means a partial V4 still produces a noticeably more alive arena.
 
 After every sub-step:
 
 ```bash
-npm test            # tests/engine.test.mjs + new tests/cameraController.test.mjs
+npm test            # tests/engine.test.mjs + cameraController + postFx + new V4 tests
 node server.mjs     # smoke load index.html in a browser
 ```
 
-Optional capture verification (already wired): `http://localhost:5173/?capture=1` writes a base64 PNG into `canvas.dataset.framePng` — compare against a reference screenshot for V1.5, V2.1, V3.1.
+Optional capture verification (already wired): `http://localhost:5173/?capture=1` writes a base64 PNG into `canvas.dataset.framePng` — compare against a reference screenshot for V1.5, V2.1, V3.1. (V4 motion verification needs a multi-frame capture; out of scope for `?capture=1`.)
 
 ## Risks & Open Questions
 
@@ -273,6 +363,10 @@ Optional capture verification (already wired): `http://localhost:5173/?capture=1
 - **Font licensing**: do *not* use Jagex's "Runescape" / "Quill" / "Plain12" fonts even if URLs exist. Stick to OFL/MIT pixel fonts. Commit the license text.
 - **`engine.state.player.specialEnergy`**: confirmed-or-skip before wiring V1.3's spec orb. If it doesn't exist, file a follow-up rather than guessing the field name.
 - **`assetMode === "local-osrs"` interaction**: V1.2 (HP bar height) and V2.1 (camera distance) must still frame the scene correctly when a GLB Yama at a very different scale loads. Test both modes.
+- **V4.1 Frame archive completeness**: the cache's Frame archive may reference a Framemap that the user's cache revision doesn't ship (older revs). Exporter must skip-and-warn rather than crash if a frame's framemap is missing.
+- **V4.2/V4.3 clip naming**: exporters from different cache versions emit different sequence IDs; the `animations.<entity>` manifest remap is the escape hatch, not optional polish.
+- **V4.5 AudioContext autoplay policy**: modern browsers block `AudioContext.resume()` until a user gesture. The Mute toggle must double as the "unlock audio" gesture; load-time decoding is fine without a gesture, but first `BufferSource.start()` requires one.
+- **V4.6 impulse + edge-pan interaction**: edge-pan offsets and shake impulses both perturb the camera target. They must compose additively (offsets sum), not overwrite, or shake will appear to "jam" against an edge-panned camera.
 
 ## Acceptance Criteria (whole plan)
 
@@ -281,5 +375,6 @@ Side-by-side comparison against an OSRS Yama Phase 3 screenshot, a viewer should
 1. The HUD reads as OSRS (orbs, hitsplats, NPC HP bar, click X's).
 2. The camera moves and reacts like the OSRS client (drag-rotate, scroll-zoom, fixed-mode option).
 3. The arena looks volcanic and the side panel looks like a RuneScape UI frame.
-4. No file under `src/`, `public/`, or `docs/` contains Jagex-owned art, audio, fonts, or model data.
+4. The arena *moves* — Yama visibly tracks the player, hits register with a camera bump, animated assets play if a local pack supplies them, and audio fires on impact events if a local pack supplies sounds.
+5. No file under `src/`, `public/`, or `docs/` contains Jagex-owned art, audio, fonts, or model data.
 
