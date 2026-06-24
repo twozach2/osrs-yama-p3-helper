@@ -19,14 +19,21 @@ const MIME_TYPES = {
   ".jpeg": "image/jpeg",
   ".webp": "image/webp",
   ".mjs": "text/javascript; charset=utf-8",
-  ".svg": "image/svg+xml"
+  ".svg": "image/svg+xml",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2"
 };
 
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url ?? "/", `http://${HOST}:${PORT}`);
     const pathname = url.pathname === "/" ? "/index.html" : decodeURIComponent(url.pathname);
-    const localPathname = pathname.startsWith("/assets/") ? `/public${pathname}` : pathname;
+    const localPathname =
+      pathname.startsWith("/assets/") || pathname.startsWith("/fonts/")
+        ? `/public${pathname}`
+        : pathname;
     const filePath = normalize(join(ROOT, localPathname));
 
     if (!filePath.startsWith(ROOT)) {

@@ -187,7 +187,10 @@ export class AssetPack {
       return;
     }
 
-    document.documentElement.style.setProperty("--ui-font", `${quoteCssFontFamily(font.family)}, "Trebuchet MS", Arial, sans-serif`);
+    document.documentElement.style.setProperty(
+      "--ui-font",
+      `${quoteCssFontFamily(font.family)}, "04B_03", "Trebuchet MS", Arial, sans-serif`
+    );
   }
 
   applyAssetSpritesToDocument() {
