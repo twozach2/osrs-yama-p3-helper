@@ -12,6 +12,8 @@ const MIN_PITCH = (15 * Math.PI) / 180;
 const MAX_PITCH = (80 * Math.PI) / 180;
 const YAW_PER_PX = (0.5 * Math.PI) / 180;
 const PITCH_PER_PX = (0.35 * Math.PI) / 180;
+const ZOOM_STEP_PER_NOTCH = 0.6;
+const WHEEL_PIXELS_PER_NOTCH = 100;
 const NEAR = 0.1;
 const FAR = 100;
 
@@ -66,6 +68,10 @@ export class CameraController {
     this.applyPose();
   }
 
+  applyZoomNotch(notches) {
+    this.setDistance(this.distance + notches * ZOOM_STEP_PER_NOTCH);
+  }
+
   attach(canvasOverride) {
     const target = canvasOverride ?? this.canvas;
     if (!target || typeof target.addEventListener !== "function") {
@@ -103,11 +109,18 @@ export class CameraController {
       try { target.releasePointerCapture?.(event.pointerId); } catch { /* not supported */ }
     };
 
+    const onWheel = (event) => {
+      if (!event.deltaY) return;
+      this.applyZoomNotch(event.deltaY / WHEEL_PIXELS_PER_NOTCH);
+      event.preventDefault();
+    };
+
     target.addEventListener("pointerdown", onPointerDown);
     target.addEventListener("pointermove", onPointerMove);
     target.addEventListener("pointerup", onPointerEnd);
     target.addEventListener("pointercancel", onPointerEnd);
     target.addEventListener("lostpointercapture", onPointerEnd);
+    target.addEventListener("wheel", onWheel, { passive: false });
 
     this._detach = () => {
       target.removeEventListener("pointerdown", onPointerDown);
@@ -115,6 +128,7 @@ export class CameraController {
       target.removeEventListener("pointerup", onPointerEnd);
       target.removeEventListener("pointercancel", onPointerEnd);
       target.removeEventListener("lostpointercapture", onPointerEnd);
+      target.removeEventListener("wheel", onWheel);
       this._detach = null;
     };
     return this._detach;
@@ -173,6 +187,8 @@ export const CAMERA_DEFAULTS = Object.freeze({
   maxPitch: MAX_PITCH,
   yawPerPx: YAW_PER_PX,
   pitchPerPx: PITCH_PER_PX,
+  zoomStepPerNotch: ZOOM_STEP_PER_NOTCH,
+  wheelPixelsPerNotch: WHEEL_PIXELS_PER_NOTCH,
   panelBreakpointPx: PANEL_BREAKPOINT_PX,
   panelWidthPx: PANEL_WIDTH_PX
 });

@@ -91,8 +91,33 @@ stubCanvas.dispatch("pointermove", { button: -1, pointerId: 2, clientX: 210, cli
 assert.ok(Math.abs(dragCtrl.yaw - (yawBeforeMiddle + 100 * CAMERA_DEFAULTS.yawPerPx)) < 1e-9,
   "pointer release stops drag tracking");
 
+// V2.3 zoom
+const distAtStart = dragCtrl.distance;
+dragCtrl.applyZoomNotch(1);
+assert.ok(Math.abs(dragCtrl.distance - (distAtStart + CAMERA_DEFAULTS.zoomStepPerNotch)) < 1e-9,
+  "applyZoomNotch(1) increases distance by one step");
+dragCtrl.applyZoomNotch(-1);
+assert.ok(Math.abs(dragCtrl.distance - distAtStart) < 1e-9, "applyZoomNotch(-1) reverses the step");
+
+dragCtrl.applyZoomNotch(10000);
+assert.equal(dragCtrl.distance, CAMERA_DEFAULTS.maxDistance, "applyZoomNotch clamps at maxDistance");
+dragCtrl.applyZoomNotch(-10000);
+assert.equal(dragCtrl.distance, CAMERA_DEFAULTS.minDistance, "applyZoomNotch clamps at minDistance");
+dragCtrl.setDistance(CAMERA_DEFAULTS.defaultDistance);
+
+assert.ok(stubCanvas.listeners.has("wheel"), "attach registers wheel listener");
+const distBeforeWheel = dragCtrl.distance;
+stubCanvas.dispatch("wheel", { deltaY: CAMERA_DEFAULTS.wheelPixelsPerNotch });
+assert.ok(Math.abs(dragCtrl.distance - (distBeforeWheel + CAMERA_DEFAULTS.zoomStepPerNotch)) < 1e-9,
+  "positive deltaY zooms out by one step");
+stubCanvas.dispatch("wheel", { deltaY: -CAMERA_DEFAULTS.wheelPixelsPerNotch });
+assert.ok(Math.abs(dragCtrl.distance - distBeforeWheel) < 1e-9, "negative deltaY zooms back in");
+stubCanvas.dispatch("wheel", { deltaY: 0 });
+assert.ok(Math.abs(dragCtrl.distance - distBeforeWheel) < 1e-9, "zero deltaY is a no-op");
+
 detach();
 assert.equal(stubCanvas.listeners.get("pointerdown").size, 0, "detach removes the pointerdown listener");
+assert.equal(stubCanvas.listeners.get("wheel").size, 0, "detach removes the wheel listener");
 
 console.log("cameraController tests passed");
 
