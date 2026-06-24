@@ -613,12 +613,7 @@ class ThreeGameScene {
 
   updateCameraTarget(snapshot, partialTick) {
     const player = this.playerVisualPosition(snapshot, partialTick);
-    const yama = this.tileToWorld(rectCenter(this.scenario.yama), 0);
-    this.cameraController.lookAt({
-      x: player.x * 0.45 + yama.x * 0.55,
-      y: 0,
-      z: player.z * 0.45 + yama.z * 0.55
-    });
+    this.cameraController.lookAt({ x: player.x, y: 0, z: player.z });
   }
 
   drawUnsafeZone(snapshot) {

@@ -6,43 +6,45 @@ const renderer = createStubRenderer();
 const canvas = createStubCanvas(800, 600);
 const controller = new CameraController({ canvas, renderer });
 
-assert.ok(controller.camera instanceof THREE.OrthographicCamera, "camera is OrthographicCamera");
-assert.equal(controller.camera.position.x, CAMERA_DEFAULTS.position.x);
-assert.equal(controller.camera.position.y, CAMERA_DEFAULTS.position.y);
-assert.equal(controller.camera.position.z, CAMERA_DEFAULTS.position.z);
+assert.ok(controller.camera instanceof THREE.PerspectiveCamera, "camera is PerspectiveCamera");
+assert.equal(controller.camera.fov, CAMERA_DEFAULTS.fovDegrees);
+assert.equal(controller.distance, CAMERA_DEFAULTS.defaultDistance);
+assert.equal(controller.yaw, CAMERA_DEFAULTS.defaultYaw);
+assert.equal(controller.pitch, CAMERA_DEFAULTS.defaultPitch);
 
-controller.applyFrustum(2);
-assert.equal(controller.camera.top, CAMERA_DEFAULTS.orthoFrustumWide / 2, "wide aspect uses wide frustum");
-assert.equal(controller.camera.bottom, -CAMERA_DEFAULTS.orthoFrustumWide / 2);
+const expectedY = Math.sin(controller.pitch) * controller.distance;
+assert.ok(Math.abs(controller.camera.position.y - expectedY) < 1e-6, "initial camera y matches pitch + distance");
+assert.ok(Math.abs(controller.camera.position.x) < 1e-6, "initial camera x is on the yaw=0 meridian");
 
-controller.applyFrustum(0.6);
-assert.equal(controller.camera.top, CAMERA_DEFAULTS.orthoFrustumTall / 2, "tall aspect uses tall frustum");
+controller.applyAspect(2);
+assert.equal(controller.camera.aspect, 2);
 
-const before = controller.camera.matrixWorld.clone();
-controller.lookAt({ x: 0, y: 0, z: 0 });
-const after = controller.camera.matrixWorld;
-assert.ok(true, `lookAt(target) executed without throwing (before=${before.elements[0]}, after=${after.elements[0]})`);
+controller.applyAspect(0.6);
+assert.equal(controller.camera.aspect, 0.6);
 
-renderer.calls.length = 0;
-controller.applyFrustum(1.5);
 controller.lookAt({ x: 5, y: 0, z: 5 });
-assert.equal(renderer.calls.filter((entry) => entry.kind === "setSize").length, 0,
-  "applyFrustum + lookAt should not touch renderer.setSize");
+assert.ok(Math.abs(controller.target.x - 5) < 1e-6 && Math.abs(controller.target.z - 5) < 1e-6,
+  "lookAt updates the orbit target");
+assert.ok(Math.abs(controller.camera.position.x - 5) < 1e-6, "camera x tracks the target x at yaw=0");
 
+controller.setDistance(50);
+assert.equal(controller.distance, CAMERA_DEFAULTS.maxDistance, "setDistance clamps to max");
+controller.setDistance(1);
+assert.equal(controller.distance, CAMERA_DEFAULTS.minDistance, "setDistance clamps to min");
+controller.setDistance(CAMERA_DEFAULTS.defaultDistance);
+
+controller.lookAt({ x: 0, y: 0, z: 0 });
+controller.applyAspect(800 / 600);
 const ndcCenter = controller.pickGround(400, 300);
-assert.ok(ndcCenter, "pickGround returns a hit for center of canvas");
+assert.ok(ndcCenter, "pickGround returns a hit at center of canvas");
 assert.ok(Math.abs(ndcCenter.y) < 1e-6, `ground hit has y ~= 0 (got ${ndcCenter.y})`);
+assert.ok(Math.abs(ndcCenter.x) < 0.1 && Math.abs(ndcCenter.z) < 0.1,
+  `center-of-canvas pick lands near target origin (got ${ndcCenter.x}, ${ndcCenter.z})`);
 
-const offCanvasHit = controller.pickGround(400, 300);
-assert.ok(offCanvasHit.x !== undefined && offCanvasHit.z !== undefined, "hit has x and z components");
-
-const isolatedCanvas = createStubCanvas(640, 480);
-const isolated = new CameraController({ canvas: isolatedCanvas, renderer: createStubRenderer() });
-const isolatedHit = isolated.pickGround(0, 0);
-const isolatedHit2 = isolated.pickGround(640, 480);
-assert.ok(isolatedHit && isolatedHit2, "two distinct cursor positions both intersect the ground plane");
-assert.ok(isolatedHit.x !== isolatedHit2.x || isolatedHit.z !== isolatedHit2.z,
-  "different cursor positions produce different ground hits");
+const left = controller.pickGround(100, 300);
+const right = controller.pickGround(700, 300);
+assert.ok(left && right, "edge-of-canvas picks both hit the ground plane");
+assert.ok(left.x < right.x, "left pixel maps to smaller world x than right pixel");
 
 const noCanvas = new CameraController({ canvas: null, renderer: createStubRenderer() });
 assert.equal(noCanvas.pickGround(10, 10), null, "pickGround returns null without a canvas");
