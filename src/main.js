@@ -28,6 +28,19 @@ const TILE_MARKER_EDGE_THICKNESS = 0.04;
 const TILE_MARKER_EDGE_HEIGHT = 0.04;
 const TILE_MARKER_LABEL_OFFSET = 0.32;
 
+// Static "lava crack" emissive strips laid across the arena floor between
+// tiles. Coordinates are in world units (arena spans roughly -7.5..7.5 on
+// both axes). Rotations are in radians around Y; 0 = strip runs east-west.
+const LAVA_CRACKS = [
+  { x: -4.2, z: -3.1, length: 5.8, width: 0.07, rotation: 0.18 },
+  { x: 3.6, z: -4.8, length: 4.4, width: 0.06, rotation: -0.42 },
+  { x: -2.1, z: 2.4, length: 6.2, width: 0.08, rotation: 0.62 },
+  { x: 4.8, z: 3.7, length: 3.6, width: 0.05, rotation: -0.18 },
+  { x: 0.4, z: 5.6, length: 4.2, width: 0.06, rotation: 0.08 },
+  { x: -5.4, z: 4.2, length: 2.8, width: 0.05, rotation: 1.1 },
+  { x: 5.2, z: -1.4, length: 3.0, width: 0.05, rotation: 1.32 }
+];
+
 const ui = {
   tick: document.querySelector("#tick"),
   cooldown: document.querySelector("#cooldown"),
@@ -408,7 +421,7 @@ class ThreeGameScene {
   }
 
   addLights() {
-    const ambient = new THREE.HemisphereLight(0xf8e7bd, 0x17120a, 1.6);
+    const ambient = new THREE.HemisphereLight(0xf8e7bd, 0x1a0a06, 1.6);
     this.scene.add(ambient);
 
     const key = new THREE.DirectionalLight(0xfff0c4, 2.1);
@@ -423,6 +436,11 @@ class ThreeGameScene {
     const red = new THREE.PointLight(0xff3434, 2.2, 14);
     red.position.set(0, 4, -1.5);
     this.scene.add(red);
+
+    const voidEdge = new THREE.PointLight(0x5a2a8a, 0.8, 18);
+    const arenaSouth = this.scenario.arena.height / 2 + 1.5;
+    voidEdge.position.set(0, 3, arenaSouth);
+    this.scene.add(voidEdge);
   }
 
   buildStaticWorld(showGrid) {
@@ -449,6 +467,8 @@ class ThreeGameScene {
       }
     }
 
+    this.addLavaCracks();
+
     const rim = new THREE.Mesh(
       new THREE.BoxGeometry(this.scenario.arena.width + 0.8, 0.55, this.scenario.arena.height + 0.8),
       this.materials.rim
@@ -458,6 +478,16 @@ class ThreeGameScene {
     this.staticGroup.add(rim);
 
     this.addCoordinateLabels();
+  }
+
+  addLavaCracks() {
+    for (const crack of LAVA_CRACKS) {
+      const geometry = new THREE.BoxGeometry(crack.length, 0.01, crack.width);
+      const mesh = new THREE.Mesh(geometry, this.materials.lavaCrack);
+      mesh.position.set(crack.x, 0.005, crack.z);
+      mesh.rotation.y = crack.rotation;
+      this.staticGroup.add(mesh);
+    }
   }
 
   buildYama() {
@@ -1021,10 +1051,11 @@ class ThreeGameScene {
 
 function createMaterials() {
   const materials = {
-    floorA: new THREE.MeshStandardMaterial({ color: 0x51452f, roughness: 0.9 }),
-    floorB: new THREE.MeshStandardMaterial({ color: 0x473b29, roughness: 0.9 }),
-    gridLine: new THREE.LineBasicMaterial({ color: 0xe8d86a, transparent: true, opacity: 0.16 }),
-    rim: new THREE.MeshStandardMaterial({ color: 0x15100a, roughness: 1 }),
+    floorA: new THREE.MeshStandardMaterial({ color: 0x2a1f1a, roughness: 0.95 }),
+    floorB: new THREE.MeshStandardMaterial({ color: 0x231814, roughness: 0.95 }),
+    gridLine: new THREE.LineBasicMaterial({ color: 0xe8a050, transparent: true, opacity: 0.1 }),
+    lavaCrack: new THREE.MeshBasicMaterial({ color: 0xff6418, transparent: true, opacity: 0.92 }),
+    rim: new THREE.MeshStandardMaterial({ color: 0x0a0604, roughness: 1 }),
     yamaFootprint: new THREE.MeshBasicMaterial({ color: 0x5f1919, transparent: true, opacity: 0.34 }),
     yamaBody: new THREE.MeshStandardMaterial({ color: 0x7f1d1d, roughness: 0.72, metalness: 0.08 }),
     yamaHead: new THREE.MeshStandardMaterial({ color: 0xb91c1c, roughness: 0.68 }),
