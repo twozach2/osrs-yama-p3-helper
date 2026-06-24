@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 
 const ASSET_MANIFEST_PATH = "/assets/osrs/manifest.json";
@@ -21,6 +22,12 @@ export class AssetPack {
     this.canvas = canvas ?? null;
     this.disposeObject = typeof disposeObject === "function" ? disposeObject : () => {};
     this.gltfLoader = new GLTFLoader();
+    // GLBs produced by `gltf-transform optimize --compress meshopt`
+    // (see tools/extract-models/extract.mjs) declare
+    // EXT_meshopt_compression as required. Without this decoder the
+    // GLBs still parse but their vertex buffers come back empty, which
+    // looks identical to no asset pack at all.
+    this.gltfLoader.setMeshoptDecoder(MeshoptDecoder);
     this.textureLoader = new THREE.TextureLoader();
     this.assetModels = new Map();
     this.assetSprites = new Map();
