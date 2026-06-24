@@ -22,6 +22,10 @@ const HIT_SPLAT_STACK_OFFSET = 0.35;
 const HAZARD_PULSE_PERIOD_TICKS = 2;
 const FIRE_TELEGRAPH_PALETTE = { start: 0x7a2200, end: 0xfde047 };
 const SHADOW_TELEGRAPH_PALETTE = { start: 0x2e1065, end: 0xd946ef };
+const TILE_MARKER_EDGE_INSET = 0.46;
+const TILE_MARKER_EDGE_THICKNESS = 0.04;
+const TILE_MARKER_EDGE_HEIGHT = 0.04;
+const TILE_MARKER_LABEL_OFFSET = 0.32;
 
 const ui = {
   tick: document.querySelector("#tick"),
@@ -565,22 +569,23 @@ class ThreeGameScene {
     for (const [coord, label, argb] of preset.markers) {
       const tile = coordToTile(coord);
       const color = new THREE.Color(colorFromTileMarker(argb));
+      const alpha = alphaFromTileMarker(argb);
       const position = this.tileToWorld(tile, 0.065);
-      const pad = new THREE.Mesh(
-        new THREE.BoxGeometry(0.66, 0.04, 0.66),
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.58 })
-      );
-      pad.position.set(position.x, position.y, position.z);
-      this.markerGroup.add(pad);
 
-      const sprite = makeTextSprite(label, {
-        fill: "#ffffff",
-        stroke: "#111111",
-        fontSize: 28,
-        scale: 0.58
-      });
-      sprite.position.set(position.x, 0.45, position.z);
-      this.markerGroup.add(sprite);
+      this.markerGroup.add(buildTileOutline(color, alpha, position));
+
+      if (label) {
+        const sprite = makeTextSprite(label, {
+          fill: "#ffffff",
+          stroke: "#111111",
+          fontSize: 22,
+          fontFamily: this.assetPack.textSpriteFontFamily("ui"),
+          scale: 0.34,
+          opacity: alpha
+        });
+        sprite.position.set(position.x - TILE_MARKER_LABEL_OFFSET, 0.32, position.z - TILE_MARKER_LABEL_OFFSET);
+        this.markerGroup.add(sprite);
+      }
     }
   }
 
@@ -1144,6 +1149,36 @@ function makeTextSprite(text, options = {}) {
 
 function nextPowerOfTwo(value) {
   return 2 ** Math.ceil(Math.log2(Math.max(2, value)));
+}
+
+function buildTileOutline(color, alpha, position) {
+  const group = new THREE.Group();
+  const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: alpha });
+  material.userData.shared = false;
+
+  const span = TILE_MARKER_EDGE_INSET * 2 + TILE_MARKER_EDGE_THICKNESS;
+  const longEdge = new THREE.BoxGeometry(span, TILE_MARKER_EDGE_HEIGHT, TILE_MARKER_EDGE_THICKNESS);
+  const shortEdge = new THREE.BoxGeometry(TILE_MARKER_EDGE_THICKNESS, TILE_MARKER_EDGE_HEIGHT, span);
+
+  const offsets = [
+    [longEdge, 0, 0, -TILE_MARKER_EDGE_INSET],
+    [longEdge, 0, 0, TILE_MARKER_EDGE_INSET],
+    [shortEdge, -TILE_MARKER_EDGE_INSET, 0, 0],
+    [shortEdge, TILE_MARKER_EDGE_INSET, 0, 0]
+  ];
+  for (const [geometry, dx, dy, dz] of offsets) {
+    const edge = new THREE.Mesh(geometry, material);
+    edge.position.set(position.x + dx, position.y + dy, position.z + dz);
+    group.add(edge);
+  }
+  return group;
+}
+
+function alphaFromTileMarker(argb) {
+  if (typeof argb !== "string" || !/^#[0-9A-F]{8}$/i.test(argb)) {
+    return 1;
+  }
+  return parseInt(argb.slice(1, 3), 16) / 255;
 }
 
 function clearGroup(group) {
