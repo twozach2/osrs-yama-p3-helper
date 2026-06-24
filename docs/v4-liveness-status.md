@@ -95,27 +95,33 @@ honest first-pass guesses, not budgets.
 
 ## "Basic, completely useful" — assessment
 
-Honest take: **it already is**, for the core practice loop.
+V4 alone is **not** enough to make the tool feel like real OSRS
+gameplay. It's the visual-liveness layer. The actual combat loop --
+food, potions, offensive prayer, spec attacks, gear swaps, animation
+locks, click-to-tick delay -- is missing from the engine entirely.
 
-V1 (HUD), V2 (camera/input), V3 (visual style), and the gameplay-side
-engine (telegraphs, prayer flicks, hit splats, HP bar, method packs,
-RoboFly schedule) are all done. You can drill prayer / position / tick
-mechanics today and get correct feedback. The remaining V4 work is
-**polish that makes hits feel weighty and the boss feel alive**, not
-correctness.
+Yama's `protect` is a single overhead, `prayerPoints` drains with no
+restore path, the player has 99 HP and no way to eat, the existing
+"spec" only pops flares (not Yama), and there's no notion of a gear
+swap or offensive prayer. You can drill movement and prayer flicks
+today, but you can't drill an actual Yama kill -- you just die.
 
-Concrete checkpoint that I'd call "complete for daily practice":
+The path to "feels like real Yama" is captured in the sibling plan:
+[`gameplay-fidelity-plan.md`](./gameplay-fidelity-plan.md) (V5–V7).
+Rough order:
 
-- [ ] Cache rehydrated (Option A or B above) so Yama plays its real idle.
-- [ ] Yama attack one-shot wired (most-noticed missing motion — the
-      boss currently throws projectiles without visibly swinging).
-- [ ] Player death + Yama death poses (avoids the "wait, did I die?"
-      moment).
-- [ ] Optional but cheap: V4.6 camera shake on player damage.
+1. Land the rest of V4 (this doc, ~2 hr + cache rehydration). Most
+   impactful single item: Yama attack one-shot. Polish, not correctness.
+2. V5 Tick Fidelity (~1 day). Tick HUD, click-to-tick delay, action
+   locks. Foundation for everything else.
+3. V6 Boss Read (~2 days). Overhead prayer icons, flying projectiles,
+   Yama attack/death animations.
+4. V7 Combat Loop (~3–4 days). Food, potions, offensive prayer, spec,
+   gear swap.
 
-That's ~2 hours of code work plus the cache rehydration (5 minutes of
-user-side action). Everything past that is feel-polish (audio, hit
-reactions, fallback procedural sway) and doesn't block daily use.
+Crossing the "feels like a real Yama attempt" threshold lands partway
+through V7 -- specifically once eating + offensive prayer + working
+spec exist (~4 focused days from now, including the rest of V4).
 
 ## Process notes
 
