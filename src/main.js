@@ -629,6 +629,14 @@ class ThreeGameScene {
   updateCameraTarget(snapshot, partialTick) {
     const player = this.playerVisualPosition(snapshot, partialTick);
     this.cameraController.lookAt({ x: player.x, y: 0, z: player.z });
+    this.updateSceneFog();
+  }
+
+  updateSceneFog() {
+    if (!this.scene.fog) return;
+    const distance = this.cameraController.distance;
+    this.scene.fog.near = Math.max(8, distance - 4);
+    this.scene.fog.far = distance + 30;
   }
 
   drawUnsafeZone(snapshot) {
