@@ -195,6 +195,8 @@ export class AssetPack {
     targetGroup.userData.assetMixer = null;
     targetGroup.userData.assetActions = null;
     targetGroup.userData.activeClipName = null;
+    targetGroup.userData.oneShotClipName = null;
+    targetGroup.userData.backgroundClipName = null;
 
     if (asset.animations.length > 0) {
       const mixer = new THREE.AnimationMixer(model);
@@ -213,6 +215,10 @@ export class AssetPack {
    * Switch the currently playing AnimationClip on `targetGroup` to the
    * clip named `clipName`, crossfading from whatever was playing. No-op
    * if the model has no mixer or the named clip doesn't exist.
+   *
+   * While a one-shot (see playOneShotClip) is active, this records the
+   * requested clip as the "background" to resume to but doesn't actually
+   * switch the mixer until the one-shot finishes.
    */
   setActiveClip(targetGroup, clipName, { fade = 0.18 } = {}) {
     const mixer = targetGroup?.userData?.assetMixer;
@@ -220,6 +226,10 @@ export class AssetPack {
     if (!mixer || !actions) return false;
     const next = actions.get(clipName);
     if (!next) return false;
+    if (targetGroup.userData.oneShotClipName) {
+      targetGroup.userData.backgroundClipName = clipName;
+      return true;
+    }
     if (targetGroup.userData.activeClipName === clipName) return true;
     const previous = actions.get(targetGroup.userData.activeClipName);
     next.reset().setLoop(THREE.LoopRepeat, Infinity).play();
@@ -227,6 +237,49 @@ export class AssetPack {
       next.crossFadeFrom(previous, fade, false);
     }
     targetGroup.userData.activeClipName = clipName;
+    return true;
+  }
+
+  /**
+   * Play `clipName` once, then return to whatever clip was active before
+   * (or whatever `setActiveClip` was asked for while the one-shot was
+   * running). Used for attack swings on top of the idle/walk/run loop.
+   * Returns true if the one-shot started, false if the clip isn't
+   * present or one is already playing.
+   */
+  playOneShotClip(targetGroup, clipName, { fade = 0.08 } = {}) {
+    const mixer = targetGroup?.userData?.assetMixer;
+    const actions = targetGroup?.userData?.assetActions;
+    if (!mixer || !actions) return false;
+    const oneShot = actions.get(clipName);
+    if (!oneShot) return false;
+    if (targetGroup.userData.oneShotClipName === clipName) return false;
+
+    const previousName = targetGroup.userData.activeClipName;
+    const previous = previousName ? actions.get(previousName) : null;
+
+    oneShot.reset().setLoop(THREE.LoopOnce, 1).play();
+    oneShot.clampWhenFinished = false;
+    if (previous && previous !== oneShot) {
+      oneShot.crossFadeFrom(previous, fade, false);
+    }
+
+    targetGroup.userData.oneShotClipName = clipName;
+    targetGroup.userData.backgroundClipName = previousName;
+    targetGroup.userData.activeClipName = clipName;
+
+    const onFinished = (event) => {
+      if (event.action !== oneShot) return;
+      mixer.removeEventListener("finished", onFinished);
+      // Clear one-shot state before re-driving setActiveClip so it
+      // actually performs the switch instead of just queueing it again.
+      targetGroup.userData.oneShotClipName = null;
+      const resume = targetGroup.userData.backgroundClipName ?? null;
+      targetGroup.userData.backgroundClipName = null;
+      targetGroup.userData.activeClipName = null;
+      if (resume) this.setActiveClip(targetGroup, resume, { fade });
+    };
+    mixer.addEventListener("finished", onFinished);
     return true;
   }
 

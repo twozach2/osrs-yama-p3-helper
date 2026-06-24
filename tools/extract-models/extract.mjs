@@ -20,16 +20,30 @@ const OUT_DIR = "tools/extract-models/out";
 const FINAL_DIR = "public/assets/osrs/models";
 
 // IDs resolved via tools/osrs-cache-exporter/export.mjs npc / npc-search.
-// Yama animations are idle + walk for now; attack / hit / death TBD once the
-// engine event hooks land in V4.2.
 // Animation entries are `[osrsId, roleName]` so the runtime AnimationMixer
 // can look clips up by role ("idle", "walk", ...) rather than by index.
+//
+// Yama's canonical idle/walk (12140/12141) reference frame archives that
+// are not always streamed into a local cache. The sweep in
+// probe-yama-anims.mjs confirms 12137..12139 + 12149..12152 are loadable
+// across most caches; we bake them as fallbacks with role names that
+// include the source ID, then surface the canonical ones first so the
+// engine picks the real idle/walk if they happen to be present.
 const TARGETS = {
   yama: {
     modelIds: [10468, 10338, 10340],
     animations: [
       [12140, "idle"],
-      [12141, "walk"]
+      [12141, "walk"],
+      // Fallback candidates -- baked into the GLB so the engine can pick
+      // one even when the canonical ids are missing from the user's cache.
+      [12150, "idle-alt-12150"],
+      [12151, "idle-alt-12151"],
+      [12152, "walk-alt-12152"],
+      [12149, "attack-alt-12149"],
+      [12137, "alt-12137"],
+      [12138, "alt-12138"],
+      [12139, "alt-12139"]
     ]
   },
   player: {
@@ -41,7 +55,12 @@ const TARGETS = {
       [824, "run"],
       [820, "rotate-180"],
       [821, "strafe-right"],
-      [822, "strafe-left"]
+      [822, "strafe-left"],
+      // Attack swings -- generic slash (390) covers scimitar/sword; 422
+      // is the unarmed punch fallback. The engine picks whichever clip
+      // is present, preferring "attack".
+      [390, "attack"],
+      [422, "attack-punch"]
     ]
   }
 };

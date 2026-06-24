@@ -348,6 +348,7 @@ class ThreeGameScene {
     this.assetPack = new AssetPack({ canvas: this.canvas, disposeObject });
     this.postFx = new PixelPostFx({ renderer: this.renderer, scale: 3 });
     this.animationClock = new THREE.Clock();
+    this.lastAttackSwingTick = -1;
 
     this.staticGroup = new THREE.Group();
     this.markerGroup = new THREE.Group();
@@ -705,13 +706,38 @@ class ThreeGameScene {
     const running = !!snapshot.player?.runEnabled && (snapshot.player?.runEnergy ?? 0) > 0;
     const playerClip = playerMoving ? (running ? "run" : "walk") : "idle";
     this.assetPack.setActiveClip(this.playerGroup, playerClip);
-    this.assetPack.setActiveClip(this.yamaGroup, "idle");
+    this.assetPack.setActiveClip(this.yamaGroup, this.yamaIdleClipName());
+
+    // Fire a one-shot attack clip whenever a new entry shows up in
+    // snapshot.attackSwings. Each swing has a unique tick, so we just
+    // remember the highest tick we've already played on.
+    const latestSwing = snapshot.attackSwings[snapshot.attackSwings.length - 1] ?? null;
+    if (latestSwing && latestSwing.tick !== this.lastAttackSwingTick) {
+      this.lastAttackSwingTick = latestSwing.tick;
+      this.assetPack.playOneShotClip(this.playerGroup, "attack");
+    }
 
     const delta = this.animationClock.getDelta();
     for (const group of [this.playerGroup, this.yamaGroup]) {
       const mixer = group?.userData?.assetMixer;
       if (mixer) mixer.update(delta);
     }
+  }
+
+  /**
+   * Yama's canonical idle (anim 12140) requires frame archives that are
+   * often missing from local caches. The extractor bakes several fallback
+   * clips (idle-alt-12150, idle-alt-12151, ...); pick the first one that
+   * actually loaded so the boss is never frozen.
+   */
+  yamaIdleClipName() {
+    const actions = this.yamaGroup?.userData?.assetActions;
+    if (!actions) return "idle";
+    const preferred = ["idle", "idle-alt-12150", "idle-alt-12151", "alt-12138", "alt-12139", "alt-12137"];
+    for (const name of preferred) {
+      if (actions.has(name)) return name;
+    }
+    return "idle";
   }
 
   updateSceneFog() {
