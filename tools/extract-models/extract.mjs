@@ -22,15 +22,27 @@ const FINAL_DIR = "public/assets/osrs/models";
 // IDs resolved via tools/osrs-cache-exporter/export.mjs npc / npc-search.
 // Yama animations are idle + walk for now; attack / hit / death TBD once the
 // engine event hooks land in V4.2.
+// Animation entries are `[osrsId, roleName]` so the runtime AnimationMixer
+// can look clips up by role ("idle", "walk", ...) rather than by index.
 const TARGETS = {
   yama: {
     modelIds: [10468, 10338, 10340],
-    animationIds: [12140, 12141]
+    animations: [
+      [12140, "idle"],
+      [12141, "walk"]
+    ]
   },
   player: {
     // NPC 385 "Man" -- generic male with the canonical player anim set.
     modelIds: [215, 281, 246, 28515, 26632, 176, 28285, 181, 323],
-    animationIds: [808, 819, 824, 820, 821, 822]
+    animations: [
+      [808, "idle"],
+      [819, "walk"],
+      [824, "run"],
+      [820, "rotate-180"],
+      [821, "strafe-right"],
+      [822, "strafe-left"]
+    ]
   }
 };
 
@@ -55,7 +67,8 @@ cache.onload.then(async () => {
       continue;
     }
     const target = TARGETS[name];
-    console.log(`-- ${name} -- models=[${target.modelIds.join(",")}], anims=[${target.animationIds.join(",")}]`);
+    const animSummary = target.animations.map(([id, role]) => `${role}=${id}`).join(",");
+    console.log(`-- ${name} -- models=[${target.modelIds.join(",")}], anims=[${animSummary}]`);
 
     const group = new ModelGroup();
     for (const id of target.modelIds) {
@@ -69,18 +82,18 @@ cache.onload.then(async () => {
     const merged = group.getMergedModel();
     const exporter = new GLTFExporter(merged);
 
-    for (const animId of target.animationIds) {
+    for (const [animId, role] of target.animations) {
       try {
         const applied = await merged.loadAnimation(cache, animId, false, true);
         if (!applied || !Array.isArray(applied.vertexData) || applied.vertexData.length === 0) {
-          console.warn(`  anim ${animId}: no frames; skipping`);
+          console.warn(`  anim ${role} (${animId}): no frames; skipping`);
           continue;
         }
         const morphTargetIds = applied.vertexData.map((frame) => exporter.addMorphTarget(frame));
-        exporter.addAnimation(morphTargetIds, applied.lengths, undefined, "STEP");
-        console.log(`  anim ${animId}: ${applied.vertexData.length} frames`);
+        exporter.addAnimation(morphTargetIds, applied.lengths, role, "STEP");
+        console.log(`  anim ${role} (${animId}): ${applied.vertexData.length} frames`);
       } catch (error) {
-        console.warn(`  anim ${animId}: ${error.message?.split("\n")[0] ?? error}; skipping`);
+        console.warn(`  anim ${role} (${animId}): ${error.message?.split("\n")[0] ?? error}; skipping`);
       }
     }
 

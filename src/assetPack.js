@@ -92,7 +92,11 @@ export class AssetPack {
       }
       try {
         const gltf = await this.gltfLoader.loadAsync(config.path);
-        this.assetModels.set(id, { scene: gltf.scene, config });
+        this.assetModels.set(id, {
+          scene: gltf.scene,
+          animations: gltf.animations ?? [],
+          config
+        });
         report.loaded += 1;
       } catch (error) {
         report.errors.push(`Model "${id}" failed to load: ${error.message}`);
@@ -181,6 +185,49 @@ export class AssetPack {
       }
     });
     targetGroup.add(model);
+
+    // Set up an AnimationMixer for the cloned scene if the source GLB
+    // had any clips. Engine-event consumers in main.js drive playback
+    // via setActiveClip() below; if no consumer kicks in, the first
+    // available clip (conventionally `idle`) starts looping by default.
+    const previousMixer = targetGroup.userData.assetMixer;
+    if (previousMixer) previousMixer.stopAllAction();
+    targetGroup.userData.assetMixer = null;
+    targetGroup.userData.assetActions = null;
+    targetGroup.userData.activeClipName = null;
+
+    if (asset.animations.length > 0) {
+      const mixer = new THREE.AnimationMixer(model);
+      const actions = new Map();
+      for (const clip of asset.animations) {
+        actions.set(clip.name, mixer.clipAction(clip));
+      }
+      targetGroup.userData.assetMixer = mixer;
+      targetGroup.userData.assetActions = actions;
+      const defaultName = actions.has("idle") ? "idle" : asset.animations[0].name;
+      this.setActiveClip(targetGroup, defaultName);
+    }
+  }
+
+  /**
+   * Switch the currently playing AnimationClip on `targetGroup` to the
+   * clip named `clipName`, crossfading from whatever was playing. No-op
+   * if the model has no mixer or the named clip doesn't exist.
+   */
+  setActiveClip(targetGroup, clipName, { fade = 0.18 } = {}) {
+    const mixer = targetGroup?.userData?.assetMixer;
+    const actions = targetGroup?.userData?.assetActions;
+    if (!mixer || !actions) return false;
+    const next = actions.get(clipName);
+    if (!next) return false;
+    if (targetGroup.userData.activeClipName === clipName) return true;
+    const previous = actions.get(targetGroup.userData.activeClipName);
+    next.reset().setLoop(THREE.LoopRepeat, Infinity).play();
+    if (previous && previous !== next) {
+      next.crossFadeFrom(previous, fade, false);
+    }
+    targetGroup.userData.activeClipName = clipName;
+    return true;
   }
 
   applyAssetFontsToDocument() {

@@ -347,6 +347,7 @@ class ThreeGameScene {
     this.cameraController = new CameraController({ canvas: this.canvas, renderer: this.renderer });
     this.assetPack = new AssetPack({ canvas: this.canvas, disposeObject });
     this.postFx = new PixelPostFx({ renderer: this.renderer, scale: 3 });
+    this.animationClock = new THREE.Clock();
 
     this.staticGroup = new THREE.Group();
     this.markerGroup = new THREE.Group();
@@ -408,6 +409,7 @@ class ThreeGameScene {
     this.drawAttackSwings(snapshot, partialTick);
     this.drawHitSplats(snapshot, partialTick);
     this.drawYamaHpBar(snapshot);
+    this.updateAssetAnimations(snapshot);
 
     this.postFx.render(this.scene, this.camera);
     this.canvas.dataset.sceneKind = "threejs";
@@ -673,6 +675,24 @@ class ThreeGameScene {
     // vertically.
     this.cameraController.lookAt({ x: player.x, y: 0.86, z: player.z });
     this.updateSceneFog();
+  }
+
+  updateAssetAnimations(snapshot) {
+    // Drive any AssetPack-installed AnimationMixers in real time (idle
+    // keeps looping even when the engine is paused). Clip selection
+    // happens before the tick advance so the visible animation matches
+    // the snapshot's `moveSegments`.
+    const playerMoving = snapshot.moveSegments?.some((seg) => seg.from.x !== seg.to.x || seg.from.y !== seg.to.y);
+    const running = !!snapshot.player?.runEnabled && (snapshot.player?.runEnergy ?? 0) > 0;
+    const playerClip = playerMoving ? (running ? "run" : "walk") : "idle";
+    this.assetPack.setActiveClip(this.playerGroup, playerClip);
+    this.assetPack.setActiveClip(this.yamaGroup, "idle");
+
+    const delta = this.animationClock.getDelta();
+    for (const group of [this.playerGroup, this.yamaGroup]) {
+      const mixer = group?.userData?.assetMixer;
+      if (mixer) mixer.update(delta);
+    }
   }
 
   updateSceneFog() {
