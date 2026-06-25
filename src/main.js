@@ -215,6 +215,7 @@ function resetPractice() {
   engine.reset(ui.method.value);
   accumulator = 0;
   gameScene.forceStaticRefresh();
+  gameScene.resetAnimationState();
   updateHud();
 }
 
@@ -719,9 +720,17 @@ class ThreeGameScene {
       this.assetPack.playOneShotClip(this.playerGroup, "attack");
     }
 
-    const latestYamaAttack = snapshot.projectiles
-      .filter((projectile) => projectile.type === "axeSwipe" || projectile.type === "fireballLine")
-      .sort((a, b) => b.startTick - a.startTick)[0] ?? null;
+    // projectiles are pushed in tick order, so the newest Yama melee/line
+    // attack is the last matching entry. Scan backwards instead of
+    // filter().sort() to avoid allocating two arrays every rendered frame.
+    let latestYamaAttack = null;
+    for (let i = snapshot.projectiles.length - 1; i >= 0; i -= 1) {
+      const projectile = snapshot.projectiles[i];
+      if (projectile.type === "axeSwipe" || projectile.type === "fireballLine") {
+        latestYamaAttack = projectile;
+        break;
+      }
+    }
     if (latestYamaAttack && latestYamaAttack.startTick !== this.lastYamaAttackTick) {
       this.lastYamaAttackTick = latestYamaAttack.startTick;
       this.assetPack.playFirstAvailableClip(this.yamaGroup, ["attack", "attack-alt-12149", "alt-12137", "alt-12138", "alt-12139"]);
@@ -748,6 +757,16 @@ class ThreeGameScene {
       if (actions.has(name)) return name;
     }
     return "idle";
+  }
+
+  /**
+   * Forget the last attack/swing ticks we animated on. Called when the
+   * engine is reset so a fresh run (tick back to 0) doesn't suppress an
+   * early swing whose tick happens to collide with the previous run's.
+   */
+  resetAnimationState() {
+    this.lastAttackSwingTick = -1;
+    this.lastYamaAttackTick = -1;
   }
 
   updateSceneFog() {

@@ -12,10 +12,10 @@
  * Output is gitignored; do not commit GLBs.
  */
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { execSync } from "node:child_process";
 import { RSCache, IndexType, GLTFExporter, ModelGroup } from "osrscachereader";
+import { resolveCacheDir } from "./cache-dir.mjs";
 
 const CACHE_DIR = resolveCacheDir();
 const OUT_DIR = "tools/extract-models/out";
@@ -147,27 +147,6 @@ cache.onload.then(async () => {
   cache.close();
   console.log("\nDone.");
 });
-
-function resolveCacheDir() {
-  const candidates = [
-    process.env.OSRS_CACHE,
-    "tools/extract-models/cache",
-    path.join(os.homedir(), ".runelite", "jagexcache", "oldschool", "LIVE")
-  ].filter(Boolean);
-
-  for (const candidate of candidates) {
-    const resolved = path.resolve(candidate);
-    if (fs.existsSync(path.join(resolved, "main_file_cache.dat2"))) {
-      return resolved;
-    }
-  }
-
-  throw new Error([
-    "Could not find an OSRS cache for model extraction.",
-    "Set OSRS_CACHE or create tools/extract-models/cache pointing at your RuneLite cache.",
-    `Checked: ${candidates.map((candidate) => path.resolve(candidate)).join(", ")}`
-  ].join(" "));
-}
 
 function updateManifestModel(name, assetPath) {
   const manifest = fs.existsSync(MANIFEST_PATH)

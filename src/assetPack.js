@@ -247,7 +247,9 @@ export class AssetPack {
    * (or whatever `setActiveClip` was asked for while the one-shot was
    * running). Used for attack swings on top of the idle/walk/run loop.
    * Returns true if the one-shot started, false if the clip isn't
-   * present or one is already playing.
+   * present, one is already playing, or it's the same clip that's already
+   * looping (no distinct one-shot to play, so we leave the loop alone
+   * rather than restart it as a degenerate LoopOnce hitch).
    */
   playOneShotClip(targetGroup, clipName, { fade = 0.08 } = {}) {
     const mixer = targetGroup?.userData?.assetMixer;
@@ -256,6 +258,7 @@ export class AssetPack {
     const oneShot = actions.get(clipName);
     if (!oneShot) return false;
     if (targetGroup.userData.oneShotClipName === clipName) return false;
+    if (targetGroup.userData.activeClipName === clipName) return false;
 
     const previousName = targetGroup.userData.activeClipName;
     const previous = previousName ? actions.get(previousName) : null;

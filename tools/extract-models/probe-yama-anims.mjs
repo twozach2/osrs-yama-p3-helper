@@ -12,6 +12,7 @@
  * frame counts and lengths for the ones that do load.
  */
 import { RSCache, IndexType, ModelGroup } from "osrscachereader";
+import { resolveCacheDir } from "./cache-dir.mjs";
 
 // Animaya skeletons (newer rigging format) throw synchronously from
 // inside osrscachereader; the throw isn't reliably caught by our await
@@ -20,7 +21,7 @@ import { RSCache, IndexType, ModelGroup } from "osrscachereader";
 process.on("unhandledRejection", () => {});
 process.on("uncaughtException", () => {});
 
-const cache = new RSCache("tools/extract-models/cache");
+const cache = new RSCache(resolveCacheDir());
 const origErr = console.error;
 console.error = () => {};
 
