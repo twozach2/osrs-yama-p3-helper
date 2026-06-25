@@ -65,7 +65,13 @@ If you want a different NPC / set of models, look up its ID via
   archives 543 and 545 which are not in many caches by default — OSRS
   streams them lazily based on the player's location. Visit Yama's
   chamber once with RuneLite to populate them, then re-run the
-  extractor.
+  extractor. Alternatively, grab a full snapshot from
+  [archive.openrs2.org](https://archive.openrs2.org/) (the OpenRS2
+  cache archive ships every archive non-lazily) and point
+  `OSRS_CACHE` at the directory containing its `main_file_cache.dat2`
+  / `main_file_cache.idx*` files. Drop it under
+  `tools/extract-models/openrs2-cache/` if you want — that path is
+  gitignored.
 - **Player armor**: the current `player` target uses NPC 385 "Man" — a
   fully un-equipped male with the canonical player anim set
   (idle 808 / walk 819 / run 824 / rotate-180 820 / strafe-l/r 822/821).

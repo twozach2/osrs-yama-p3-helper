@@ -14,4 +14,5 @@ public/assets/osrs/models/
 public/assets/osrs/raw/
 public/assets/osrs/sprites/
 tools/extract-models/cache
+tools/extract-models/openrs2-cache/
 tools/extract-models/out/
