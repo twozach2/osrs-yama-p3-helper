@@ -194,6 +194,7 @@ export class AssetPack {
     if (previousMixer) previousMixer.stopAllAction();
     targetGroup.userData.assetMixer = null;
     targetGroup.userData.assetActions = null;
+    targetGroup.userData.assetClipNames = null;
     targetGroup.userData.activeClipName = null;
     targetGroup.userData.oneShotClipName = null;
     targetGroup.userData.backgroundClipName = null;
@@ -206,6 +207,7 @@ export class AssetPack {
       }
       targetGroup.userData.assetMixer = mixer;
       targetGroup.userData.assetActions = actions;
+      targetGroup.userData.assetClipNames = [...actions.keys()];
       const defaultName = actions.has("idle") ? "idle" : asset.animations[0].name;
       this.setActiveClip(targetGroup, defaultName);
     }
@@ -281,6 +283,17 @@ export class AssetPack {
     };
     mixer.addEventListener("finished", onFinished);
     return true;
+  }
+
+  playFirstAvailableClip(targetGroup, clipNames, options = {}) {
+    const actions = targetGroup?.userData?.assetActions;
+    if (!actions) return false;
+    for (const clipName of clipNames) {
+      if (actions.has(clipName)) {
+        return this.playOneShotClip(targetGroup, clipName, options);
+      }
+    }
+    return false;
   }
 
   applyAssetFontsToDocument() {

@@ -83,6 +83,7 @@ function bootstrap() {
   gameScene = new ThreeGameScene(canvas, YAMA_P3_SCENARIO);
   window.yamaPracticeDebug = {
     sceneKind: "threejs",
+    scene: gameScene,
     getStats: () => gameScene.getStats()
   };
   init();
@@ -349,6 +350,7 @@ class ThreeGameScene {
     this.postFx = new PixelPostFx({ renderer: this.renderer, scale: 3 });
     this.animationClock = new THREE.Clock();
     this.lastAttackSwingTick = -1;
+    this.lastYamaAttackTick = -1;
 
     this.staticGroup = new THREE.Group();
     this.markerGroup = new THREE.Group();
@@ -715,6 +717,14 @@ class ThreeGameScene {
     if (latestSwing && latestSwing.tick !== this.lastAttackSwingTick) {
       this.lastAttackSwingTick = latestSwing.tick;
       this.assetPack.playOneShotClip(this.playerGroup, "attack");
+    }
+
+    const latestYamaAttack = snapshot.projectiles
+      .filter((projectile) => projectile.type === "axeSwipe" || projectile.type === "fireballLine")
+      .sort((a, b) => b.startTick - a.startTick)[0] ?? null;
+    if (latestYamaAttack && latestYamaAttack.startTick !== this.lastYamaAttackTick) {
+      this.lastYamaAttackTick = latestYamaAttack.startTick;
+      this.assetPack.playFirstAvailableClip(this.yamaGroup, ["attack", "attack-alt-12149", "alt-12137", "alt-12138", "alt-12139"]);
     }
 
     const delta = this.animationClock.getDelta();

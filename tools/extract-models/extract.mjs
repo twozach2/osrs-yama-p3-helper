@@ -12,12 +12,15 @@
  * Output is gitignored; do not commit GLBs.
  */
 import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { execSync } from "node:child_process";
 import { RSCache, IndexType, GLTFExporter, ModelGroup } from "osrscachereader";
 
-const CACHE_DIR = "tools/extract-models/cache";
+const CACHE_DIR = resolveCacheDir();
 const OUT_DIR = "tools/extract-models/out";
 const FINAL_DIR = "public/assets/osrs/models";
+const MANIFEST_PATH = "public/assets/osrs/manifest.json";
 
 // IDs resolved via tools/osrs-cache-exporter/export.mjs npc / npc-search.
 // Animation entries are `[osrsId, roleName]` so the runtime AnimationMixer
@@ -125,6 +128,7 @@ cache.onload.then(async () => {
     // gltf-transform to compress + convert to .glb. Falls back to a plain
     // file-rename if the CLI isn't available.
     const glbPath = `${FINAL_DIR}/${name}.glb`;
+    let assetPath = glbPath;
     try {
       execSync(`npx --no-install gltf-transform optimize --compress meshopt "${gltfPath}" "${glbPath}"`, {
         stdio: ["ignore", "ignore", "inherit"]
@@ -132,10 +136,64 @@ cache.onload.then(async () => {
       console.log(`  optimized -> ${glbPath}`);
     } catch (error) {
       console.warn(`  gltf-transform optimize failed (${error.message?.split("\n")[0] ?? error}); falling back to copy`);
-      fs.copyFileSync(gltfPath, glbPath.replace(/\.glb$/, ".gltf"));
+      assetPath = glbPath.replace(/\.glb$/, ".gltf");
+      fs.copyFileSync(gltfPath, assetPath);
     }
+
+    updateManifestModel(name, assetPath);
+    console.log(`  manifest -> ${MANIFEST_PATH}`);
   }
 
   cache.close();
   console.log("\nDone.");
 });
+
+function resolveCacheDir() {
+  const candidates = [
+    process.env.OSRS_CACHE,
+    "tools/extract-models/cache",
+    path.join(os.homedir(), ".runelite", "jagexcache", "oldschool", "LIVE")
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const resolved = path.resolve(candidate);
+    if (fs.existsSync(path.join(resolved, "main_file_cache.dat2"))) {
+      return resolved;
+    }
+  }
+
+  throw new Error([
+    "Could not find an OSRS cache for model extraction.",
+    "Set OSRS_CACHE or create tools/extract-models/cache pointing at your RuneLite cache.",
+    `Checked: ${candidates.map((candidate) => path.resolve(candidate)).join(", ")}`
+  ].join(" "));
+}
+
+function updateManifestModel(name, assetPath) {
+  const manifest = fs.existsSync(MANIFEST_PATH)
+    ? JSON.parse(fs.readFileSync(MANIFEST_PATH, "utf8"))
+    : {};
+
+  manifest.version = manifest.version ?? 2;
+  manifest.name = manifest.name ?? "Local OSRS Asset Pack";
+  manifest.scale = manifest.scale ?? 0.01;
+  manifest.models = manifest.models ?? {};
+  manifest.models[name] = {
+    ...(manifest.models[name] ?? {}),
+    path: toPublicAssetPath(assetPath),
+    scale: manifest.models[name]?.scale ?? 0.01,
+    yOffset: manifest.models[name]?.yOffset ?? 0,
+    rotationY: manifest.models[name]?.rotationY ?? 0
+  };
+
+  fs.mkdirSync(path.dirname(MANIFEST_PATH), { recursive: true });
+  fs.writeFileSync(MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)}\n`);
+}
+
+function toPublicAssetPath(assetPath) {
+  const relativePath = path.relative("public/assets/osrs", assetPath).replaceAll("\\", "/");
+  if (relativePath.startsWith("..")) {
+    throw new Error(`Extracted asset must be under public/assets/osrs: ${assetPath}`);
+  }
+  return `/assets/osrs/${relativePath}`;
+}

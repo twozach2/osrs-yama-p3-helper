@@ -6,14 +6,19 @@ pipeline `colosim.com` uses for Sol Heredit / Inferno NPCs.
 
 ## Cache layout
 
-The script expects the user's cache symlinked into
-`tools/extract-models/cache` (also gitignored). One-time setup:
+The script auto-detects the cache in this order:
+
+1. `OSRS_CACHE` environment variable.
+2. `tools/extract-models/cache` symlink / junction.
+3. RuneLite's normal cache path at `~/.runelite/jagexcache/oldschool/LIVE`.
+
+Optional one-time symlink setup:
 
 ```bash
 ln -snf "$HOME/.runelite/jagexcache/oldschool/LIVE" tools/extract-models/cache
 ```
 
-Override the source by re-pointing the symlink. The cache files
+Override the source by setting `OSRS_CACHE` or re-pointing the symlink. The cache files
 (`main_file_cache.dat2`, `main_file_cache.idx*`) must live **directly**
 inside the linked directory — not inside a nested `cache/` subfolder,
 despite what `osrscachereader`'s README says.
