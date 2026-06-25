@@ -6,7 +6,10 @@ import { YAMA_P3_SCENARIO } from "../src/yamaP3Scenario.js";
 const SEED = 12345;
 
 function makeEngine(seed = SEED) {
-  return new SimulatorEngine(YAMA_P3_SCENARIO, { seed });
+  // inputDelay 0 keeps the per-tick assertions in these tests valid; the
+  // click-to-tick delay is the engine default and is exercised separately
+  // in the delayed-input tests below.
+  return new SimulatorEngine(YAMA_P3_SCENARIO, { seed, inputDelay: 0 });
 }
 
 function runTicks(engine, n) {
@@ -228,6 +231,56 @@ function moveAdjacentToYama(engine) {
   // is enforced by slice(0, MAX_CHECKPOINTS) regardless of caller input.)
   const cappedCheckpoints = findCheckpoints({ x: 0, y: 0 }, { x: 14, y: 14 }, arena);
   assert.ok(cappedCheckpoints.length <= 25, "checkpoint list must be ≤ 25");
+}
+
+// 10. Click-to-tick input delay — with the default delay a queued move applies
+// one tick later, not on the tick it was issued.
+{
+  const engine = new SimulatorEngine(YAMA_P3_SCENARIO, { seed: SEED });
+  const startY = engine.state.player.y;
+  engine.queueMove({ x: engine.state.player.x, y: startY - 3 });
+  engine.advanceTick();
+  assert.equal(engine.state.player.y, startY, "delayed move must not apply on its arrival tick");
+  engine.advanceTick();
+  assert.ok(engine.state.player.y < startY, "delayed move should apply on the following tick");
+}
+
+// 11. Prayer routed through the input delay — switch applies one tick later.
+{
+  const engine = new SimulatorEngine(YAMA_P3_SCENARIO, { seed: SEED });
+  engine.setPrayer("magic");
+  assert.equal(engine.state.player.protect, "none", "delayed prayer switch is not instant");
+  engine.advanceTick();
+  assert.equal(engine.state.player.protect, "none", "prayer still pending on its arrival tick");
+  engine.advanceTick();
+  assert.equal(engine.state.player.protect, "magic", "prayer applies on the following tick");
+}
+
+// 12. Action lock — swings are gated while locked, then resume; lock decrements.
+// Asserts on attackCount (incremented per swing attempt) so the test does not
+// depend on hit-roll RNG.
+{
+  const engine = new SimulatorEngine(YAMA_P3_SCENARIO, { seed: SEED, inputDelay: 0 });
+  Object.assign(engine.state.player.profile, { attackRoll: 200000, maxHit: 60 });
+  engine.state.player.protect = "melee";
+  moveAdjacentToYama(engine);
+  engine.lockAction(4);
+  engine.queueAttack();
+  runTicks(engine, 3); // still inside the 4-tick lock
+  assert.equal(engine.state.player.attackCount, 0, "no swing should fire while action-locked");
+  assert.ok(engine.state.player.actionLockTicks <= 1, "lock should decrement each tick");
+  runTicks(engine, engine.state.player.profile.attackSpeed + 1);
+  assert.ok(engine.state.player.attackCount >= 1, "swings should resume once the lock expires");
+}
+
+// 13. Action lock leaves movement free.
+{
+  const engine = new SimulatorEngine(YAMA_P3_SCENARIO, { seed: SEED, inputDelay: 0 });
+  engine.lockAction(5);
+  const startY = engine.state.player.y;
+  engine.queueMove({ x: engine.state.player.x, y: startY - 3 });
+  engine.advanceTick();
+  assert.ok(engine.state.player.y < startY, "movement should be allowed while action-locked");
 }
 
 console.log("engine tests passed");

@@ -19,6 +19,10 @@ export class SimulatorEngine {
   constructor(scenario, options = {}) {
     this.scenario = scenario;
     this.options = { ...options };
+    // Click-to-tick delay (ticks before a queued input is consumed).
+    // Defaults to 1 to match live OSRS, where clicks register on the next
+    // tick. A user preference, so reset() deliberately leaves it alone.
+    this.inputDelay = this.options.inputDelay ?? 1;
     this.reset(Object.keys(scenario.methods)[0], this.options);
   }
 
@@ -57,6 +61,7 @@ export class SimulatorEngine {
         runEnergy: 100,
         runEnabled: true,
         attackCooldown: 0,
+        actionLockTicks: 0,
         attackCount: 0,
         poison: 0,
         burn: 0,
@@ -104,33 +109,42 @@ export class SimulatorEngine {
     this.state.strictWaypoints = enabled;
   }
 
+  // 0 = inputs apply on the tick they arrive; 1 = next tick (live OSRS).
+  setInputDelay(ticks) {
+    this.inputDelay = ticks ? 1 : 0;
+  }
+
+  // Tick on which a freshly-queued input becomes eligible to consume.
+  inputLandTick() {
+    return this.state.tick + this.inputDelay;
+  }
+
   setPrayer(prayer) {
-    this.state.player.protect = prayer;
-    this.log(`Prayer set to ${prayer}.`);
+    this.state.inputQueue.push({ kind: "prayer", prayer, landTick: this.inputLandTick() });
   }
 
   clickTile(tile) {
     const kind = this.isYamaTile(tile) ? "attack" : "move";
-    this.state.inputQueue.push({ kind, tile: cloneTile(tile) });
+    this.state.inputQueue.push({ kind, tile: cloneTile(tile), landTick: this.inputLandTick() });
     this.addClickMarker(tile, kind);
     return true;
   }
 
   // Retained for tests/back-compat: enqueue a move intent.
   queueMove(tile) {
-    this.state.inputQueue.push({ kind: "move", tile: cloneTile(tile) });
+    this.state.inputQueue.push({ kind: "move", tile: cloneTile(tile), landTick: this.inputLandTick() });
     this.addClickMarker(tile, "move");
     return true;
   }
 
   queueAttack() {
-    this.state.inputQueue.push({ kind: "attack", tile: this.getYamaCenterTile() });
+    this.state.inputQueue.push({ kind: "attack", tile: this.getYamaCenterTile(), landTick: this.inputLandTick() });
     this.addClickMarker(this.getYamaCenterTile(), "attack");
     return true;
   }
 
   clickSpec() {
-    this.state.inputQueue.push({ kind: "spec" });
+    this.state.inputQueue.push({ kind: "spec", landTick: this.inputLandTick() });
     return true;
   }
 
@@ -155,18 +169,50 @@ export class SimulatorEngine {
     this.scoreWaypoint(tick);       // optional training overlay
     this.cleanup(tick);             // 8. expire transient effects
     this.state.player.attackCooldown = Math.max(0, this.state.player.attackCooldown - 1);
+    this.state.player.actionLockTicks = Math.max(0, this.state.player.actionLockTicks - 1);
 
     this.state.tick += 1;
   }
 
   consumeInput(tick) {
-    const queue = this.state.inputQueue;
-    const input = queue.length > 0 ? queue[queue.length - 1] : null;
-    queue.length = 0;
-    if (!input) return;
-    if (input.kind === "move") this.beginMove(input.tile);
-    else if (input.kind === "attack") this.beginAttack(input.tile);
-    else if (input.kind === "spec") this.beginSpec();
+    // Drain inputs that have reached their landTick (click-to-tick delay);
+    // hold the rest for a later tick. Prayer is an independent channel from
+    // the move/attack/spec "primary" slot, so you can pray-flick and move on
+    // the same tick; within each channel the most-recent input wins.
+    const ready = [];
+    const future = [];
+    for (const input of this.state.inputQueue) {
+      if ((input.landTick ?? tick) <= tick) ready.push(input);
+      else future.push(input);
+    }
+    this.state.inputQueue = future;
+    if (ready.length === 0) return;
+
+    let prayer = null;
+    let primary = null;
+    for (const input of ready) {
+      if (input.kind === "prayer") prayer = input;
+      else primary = input;
+    }
+
+    if (prayer) this.applyPrayer(prayer.prayer);
+    if (!primary) return;
+    if (primary.kind === "move") this.beginMove(primary.tile);
+    else if (primary.kind === "attack") this.beginAttack(primary.tile);
+    // Action lock swallows special attacks (you can still move/re-path while
+    // locked); the swing itself is gated separately in resolvePlayerCombat.
+    else if (primary.kind === "spec" && this.state.player.actionLockTicks === 0) this.beginSpec();
+  }
+
+  applyPrayer(prayer) {
+    this.state.player.protect = prayer;
+    this.log(`Prayer set to ${prayer}.`);
+  }
+
+  // Occupy the player for `ticks` ticks (e.g. a special attack consumes one
+  // weapon attack cycle). Movement stays allowed; attacks/specs are gated.
+  lockAction(ticks) {
+    this.state.player.actionLockTicks = Math.max(this.state.player.actionLockTicks, ticks);
   }
 
   beginMove(tile) {
@@ -217,6 +263,8 @@ export class SimulatorEngine {
     }
     const spec = this.scenario.yama.flare.specDamage;
     nearest.hp -= spec;
+    // A special attack occupies one weapon attack cycle (OSRS).
+    this.lockAction(this.state.player.profile.attackSpeed ?? 4);
     this.log(`Spec'd void flare for ${spec}.`);
   }
 
@@ -318,6 +366,7 @@ export class SimulatorEngine {
 
   resolvePlayerCombat(tick) {
     if (this.state.intent !== "attack") return;
+    if (this.state.player.actionLockTicks > 0) return;
     if (!this.canAttackFrom(this.state.player)) return;
     if (this.state.player.attackCooldown > 0) return;
 

@@ -26,6 +26,7 @@
         <div>
           <span>Tick</span>
           <strong id="tick">0</strong>
+          <div class="tick-pulse"><i id="tickPulse"></i></div>
         </div>
         <div>
           <span>Attack CD</span>
@@ -34,6 +35,10 @@
         <div>
           <span>Tile</span>
           <strong id="position">F3</strong>
+        </div>
+        <div>
+          <span>Lock</span>
+          <strong id="lock">0</strong>
         </div>
         <div>
           <span>Mistakes</span>
@@ -68,6 +73,7 @@
       </label>
 
       <div class="toggle-grid">
+        <label><input id="inputDelay" type="checkbox" checked> Click-to-tick delay</label>
         <label><input id="runToggle" type="checkbox" checked> Run movement</label>
         <label><input id="showGrid" type="checkbox" checked> Grid</label>
         <label><input id="showMethod" type="checkbox" checked> Route ghost</label>

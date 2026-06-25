@@ -206,6 +206,21 @@ h1 {
   font-size: 20px;
 }
 
+.tick-pulse {
+  margin-top: 6px;
+  height: 4px;
+  background: #0c0805;
+  border: 1px solid #5a4828;
+  overflow: hidden;
+}
+
+.tick-pulse i {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #cfa65c 0%, #fff8a6 100%);
+}
+
 .field {
   display: grid;
   gap: 6px;

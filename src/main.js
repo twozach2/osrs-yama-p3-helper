@@ -44,8 +44,10 @@ const LAVA_CRACKS = [
 
 const ui = {
   tick: document.querySelector("#tick"),
+  tickPulse: document.querySelector("#tickPulse"),
   cooldown: document.querySelector("#cooldown"),
   position: document.querySelector("#position"),
+  lock: document.querySelector("#lock"),
   mistakes: document.querySelector("#mistakes"),
   methodPack: document.querySelector("#methodPack"),
   method: document.querySelector("#method"),
@@ -59,6 +61,7 @@ const ui = {
   showGrid: document.querySelector("#showGrid"),
   showMethod: document.querySelector("#showMethod"),
   showMarkers: document.querySelector("#showMarkers"),
+  inputDelay: document.querySelector("#inputDelay"),
   strictWaypoints: document.querySelector("#strictWaypoints"),
   fixedMode: document.querySelector("#fixedMode"),
   edgePan: document.querySelector("#edgePan"),
@@ -132,6 +135,10 @@ function init() {
 
   ui.speed.addEventListener("input", updateHud);
   ui.runToggle.addEventListener("change", () => engine.setRunEnabled(ui.runToggle.checked));
+  if (ui.inputDelay) {
+    engine.setInputDelay(ui.inputDelay.checked);
+    ui.inputDelay.addEventListener("change", () => engine.setInputDelay(ui.inputDelay.checked));
+  }
   ui.strictWaypoints.addEventListener("change", () => engine.setStrictWaypoints(ui.strictWaypoints.checked));
   ui.fixedMode.addEventListener("change", () => {
     document.documentElement.classList.toggle("fixed-mode", ui.fixedMode.checked);
@@ -200,6 +207,11 @@ function loop(now) {
     }
   }
 
+  if (ui.tickPulse) {
+    const pulse = engine.state.running ? Math.min(1, accumulator / TICK_MS) : 0;
+    ui.tickPulse.style.width = `${(pulse * 100).toFixed(1)}%`;
+  }
+
   gameScene.cameraController.tick(elapsed / 1000);
   gameScene.render(engine.getSnapshot(), accumulator / TICK_MS, {
     markerPresetId: ui.markers.value,
@@ -251,6 +263,7 @@ function updateHud() {
   ui.tick.textContent = String(snapshot.tick);
   ui.cooldown.textContent = String(snapshot.player.attackCooldown);
   ui.position.textContent = tileToCoord(snapshot.player);
+  if (ui.lock) ui.lock.textContent = String(snapshot.player.actionLockTicks);
   ui.mistakes.textContent = String(snapshot.mistakes.length);
   ui.startPause.textContent = snapshot.running ? "Pause" : "Start";
   ui.speedLabel.textContent = `${Number(ui.speed.value).toFixed(2)}x`;
@@ -301,7 +314,7 @@ function handleKeydown(event) {
     updateHud();
   }
 
-  if (event.key.toLowerCase() === "n") {
+  if (event.key.toLowerCase() === "n" || event.key === ".") {
     engine.advanceTick();
     updateHud();
   }
